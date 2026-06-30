@@ -7,3 +7,16 @@ class CertificationSerializer(serializers.ModelSerializer):
         model = Certification
         fields = "__all__"
         read_only_fields = ["id", "candidate", "created_at", "updated_at"]
+
+
+
+
+
+class GoogleLoginSerializer(serializers.Serializer):
+    id_token = serializers.CharField(required=True)
+
+
+
+
+class LinkedInLoginSerializer(serializers.Serializer):
+    code = serializers.CharField()

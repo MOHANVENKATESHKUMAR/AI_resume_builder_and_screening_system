@@ -63,3 +63,8 @@ django-celery-results==2.6.0
 rich==14.1.0
 
 django-extensions==4.1
+
+
+google-auth
+
+requests
