@@ -219,3 +219,162 @@ class LinkedInLoginAPIView(generics.GenericAPIView):
                 },
             }
         )
+    
+
+
+from rest_framework import generics
+from rest_framework.permissions import IsAuthenticated
+
+from .models import ResumeShare
+from .serializers import ResumeShareSerializer
+
+
+class ResumeShareAPIView(generics.RetrieveUpdateAPIView):
+
+    serializer_class = ResumeShareSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+
+        candidate = self.request.user.candidate
+
+        share, created = ResumeShare.objects.get_or_create(
+            candidate=candidate
+        )
+
+        return share
+
+
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
+
+class PublicResumeAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, token):
+
+        try:
+
+            share = ResumeShare.objects.get(
+                share_token=token,
+                is_public=True
+            )
+
+        except ResumeShare.DoesNotExist:
+
+            return Response(
+                {"message": "Invalid Share Link"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if share.expires_at:
+
+            if share.expires_at < timezone.now():
+
+                return Response(
+                    {"message": "Link Expired"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        candidate = share.candidate
+
+        return Response({
+            "name": candidate.first_name + " " + candidate.last_name,
+            "headline": candidate.headline,
+            "summary": candidate.summary,
+            "skills": candidate.skills,
+            "experience": candidate.experience,
+            "education": candidate.education,
+            "portfolio": candidate.portfolio,
+            "linkedin": candidate.linkedin,
+            "github": candidate.github,
+        })
+    
+
+from django.contrib.auth import authenticate
+from rest_framework import generics, status
+from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .serializers import LoginSerializer
+
+
+class LoginAPIView(generics.GenericAPIView):
+    permission_classes=[AllowAny]
+    serializer_class = LoginSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        password = serializer.validated_data["password"]
+
+        user = authenticate(
+            request=request,
+            username=email,  # USERNAME_FIELD = "email"
+            password=password,
+        )
+
+        if not user:
+            return Response(
+                {"message": "Invalid email or password"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        refresh = RefreshToken.for_user(user)
+
+        return Response(
+            {
+                "message": "Login successful",
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "username": user.username,
+                    "role": user.role,
+                },
+            }
+        )
+    
+
+from rest_framework import generics, status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .serializers import LogoutSerializer
+
+
+class LogoutAPIView(generics.GenericAPIView):
+    serializer_class = LogoutSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            refresh_token = serializer.validated_data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+
+            return Response(
+                {
+                    "message": "Logout successful."
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception:
+            return Response(
+                {
+                    "message": "Invalid refresh token."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )

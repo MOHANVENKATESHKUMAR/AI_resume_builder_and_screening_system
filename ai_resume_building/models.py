@@ -237,3 +237,95 @@ class Certification(models.Model):
 
     def __str__(self):
         return f"{self.certification_name} - {self.candidate.first_name}"
+    
+
+
+import uuid
+from django.db import models
+
+
+class ResumeShare(models.Model):
+    candidate = models.OneToOneField(
+        Candidate,
+        on_delete=models.CASCADE,
+        related_name="resume_share"
+    )
+
+    share_token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False
+    )
+
+    is_public = models.BooleanField(
+        default=False
+    )
+
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        db_table = "resume_share"
+
+    def __str__(self):
+        return f"{self.candidate.user.email}"
+
+
+class SocialLink(models.Model):
+
+    PLATFORM_CHOICES = (
+        ("LINKEDIN", "LinkedIn"),
+        ("GITHUB", "GitHub"),
+        ("PORTFOLIO", "Portfolio"),
+        ("LEETCODE", "LeetCode"),
+        ("HACKERRANK", "HackerRank"),
+        ("CODECHEF", "CodeChef"),
+        ("OTHER", "Other"),
+    )
+
+    candidate = models.ForeignKey(
+        Candidate,
+        on_delete=models.CASCADE,
+        related_name="social_links"
+    )
+
+    platform = models.CharField(
+        max_length=20,
+        choices=PLATFORM_CHOICES
+    )
+
+    profile_url = models.URLField()
+
+    username = models.CharField(
+        max_length=100,
+        blank=True
+    )
+
+    is_primary = models.BooleanField(
+        default=False
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        db_table = "social_link"
+        ordering = ["platform"]
+
+    def __str__(self):
+        return f"{self.candidate.user.email} - {self.platform}"
