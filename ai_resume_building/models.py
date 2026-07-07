@@ -45,7 +45,7 @@ class Candidate(models.Model):
         related_name="candidate",
     )
 
-    first_name = models.CharField(max_length=100)
+    first_name = models.CharField(max_length=100, blank=True)
     last_name = models.CharField(max_length=100, blank=True)
 
     profile_image = models.ImageField(
@@ -98,7 +98,6 @@ class OTP(models.Model):
 
     class Meta:
         db_table = "otp"
-        # Every OTP send/verify request filters on this pair — index it.
         indexes = [
             models.Index(fields=["email", "purpose"]),
         ]

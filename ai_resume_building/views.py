@@ -16,7 +16,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from ai_resume_building.utils import FRONTEND_RESET_PASSWORD_URL, api_response, generate_otp, get_client_ip, get_valid_otp, issue_otp, send_otp_email
 
-from .models import OTP, OTPPurpose, PasswordResetToken
+from .models import OTP, Candidate, OTPPurpose, PasswordResetToken
 from .serializers import (
     CandidateSignupSerializer,
     ForgotPasswordSerializer,
@@ -71,6 +71,10 @@ class CandidateSignupView(APIView):
                 user.is_email_verified = True
                 user.save(update_fields=["is_email_verified"])
                 verified_otp.delete()
+                 # Create an empty candidate profile
+                Candidate.objects.create(
+                    user=user
+                )
         except IntegrityError:
             logger.exception("Failed to create user account for email: %s", email)
             return api_response(
