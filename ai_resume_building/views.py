@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ai_resume_building.utils import FRONTEND_RESET_PASSWORD_URL, api_response, generate_otp, get_client_ip, get_valid_otp, issue_otp, send_otp_email
+from ai_resume_building.utils import FRONTEND_RESET_PASSWORD_URL, api_response, generate_otp, get_client_ip, get_valid_otp, issue_otp, send_otp_email, send_reset_password_email
 
 from .models import OTP, Candidate, OTPPurpose, PasswordResetToken
 from .serializers import (
@@ -249,25 +249,16 @@ class ForgotPasswordAPIView(APIView):
         email = serializer.validated_data["email"]
         user = User.objects.filter(email=email).first()
 
-        # Only do the real work if the account exists, but always return
-        # the same message/status either way so the endpoint can't be used
-        # to enumerate registered emails.
         if user is not None:
             reset = PasswordResetToken.objects.create(user=user)
             reset_link = f"{FRONTEND_RESET_PASSWORD_URL}?token={reset.token}"
 
-            send_mail(
-                subject="Reset Your Password",
-                message=f"Click the link below to reset your password:\n\n{reset_link}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=True,
-            )
+            send_reset_password_email(user, reset_link)
 
-        return api_response(
-            True,
-            "If an account exists for this email, a password reset link has been sent.",
-        )
+            return api_response(
+                    True,
+                    "If an account exists for this email, a password reset link has been sent.",
+                )
 
 
 class ResetPasswordAPIView(APIView):

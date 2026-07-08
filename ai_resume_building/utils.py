@@ -3,10 +3,10 @@ import random
 import string
 import secrets
 from datetime import timedelta
-
+from django.template.loader import render_to_string
 from django.conf import settings
 
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -45,9 +45,7 @@ FRONTEND_RESET_PASSWORD_URL = getattr(
 )
 
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
+
 
 def api_response(success, message=None, http_status=status.HTTP_200_OK, **fields):
    
@@ -58,19 +56,64 @@ def api_response(success, message=None, http_status=status.HTTP_200_OK, **fields
     return Response(body, status=http_status)
 
 
-def send_otp_email(email, otp, subject):
+# def send_otp_email(email, otp, subject):
     
-    try:
-        send_mail(
-            subject=subject,
-            message=f"Your OTP is {otp}. It is valid for {OTP_VALIDITY_MINUTES} minutes.",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
-        )
-    except Exception:
-        logger.exception("Failed to send OTP email to %s", email)
+#     try:
+#         send_mail(
+#             subject=subject,
+#             message=f"Your OTP is {otp}. It is valid for {OTP_VALIDITY_MINUTES} minutes.",
+#             from_email=settings.DEFAULT_FROM_EMAIL,
+#             recipient_list=[email],
+#             fail_silently=False,
+#         )
+#     except Exception:
+#         logger.exception("Failed to send OTP email to %s", email)
+def send_otp_email(email, otp,subject):
 
+    html = render_to_string(
+        "emails/signup_otp.html",
+        {
+            "otp": otp,
+            "minutes": 5,
+        },
+    )
+
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=f"Your OTP is {otp}",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[email],
+    )
+
+    msg.attach_alternative(html, "text/html")
+
+    msg.send()
+
+
+
+
+
+def send_reset_password_email(user, reset_link):
+    
+    context = {
+        "reset_link": reset_link,
+        "minutes": OTP_VALIDITY_MINUTES, 
+    }
+
+    html_content = render_to_string(
+        "emails/reset_password.html",
+        context,
+    )
+
+    email = EmailMultiAlternatives(
+        subject="Reset Your Password",
+        body=f"Click the link below to reset your password:\n\n{reset_link}",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+
+    email.attach_alternative(html_content, "text/html")
+    email.send(fail_silently=False)
 
 def issue_otp(email, purpose):
     
