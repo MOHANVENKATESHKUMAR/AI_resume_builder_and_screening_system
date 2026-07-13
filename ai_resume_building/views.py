@@ -24,6 +24,7 @@ from .serializers import (
     ResetPasswordSerializer,
     SendOTPSerializer,
     VerifyOTPSerializer,
+    UserRole
 )
 
 User = get_user_model()
@@ -142,6 +143,7 @@ class VerifySignupOTPAPIView(APIView):
 
 # Login (2-step: password, then OTP)
 
+from django.contrib.auth import authenticate
 
 class LoginAPIView(APIView):
     permission_classes = [AllowAny]
@@ -150,20 +152,47 @@ class LoginAPIView(APIView):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
+        login = serializer.validated_data["login"]
         password = serializer.validated_data["password"]
+        role = serializer.validated_data["role"]
 
-        user = User.objects.filter(email=email).first()
+        # Candidate -> Email only
+        if role == UserRole.CANDIDATE:
+            user = User.objects.filter(
+                email__iexact=login,
+                role=UserRole.CANDIDATE,
+            ).first()
+
+        # Employer -> Username only
+        elif role == UserRole.EMPLOYER:
+            user = User.objects.filter(
+                username__iexact=login,
+                role=UserRole.EMPLOYER,
+            ).first()
+
+        else:
+            return api_response(
+                False,
+                "Invalid role.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if user is None:
+            return api_response(
+                False,
+                "Invalid credentials.",
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         authenticated_user = authenticate(
-            username=user.username if user else email,
+            username=user.username,
             password=password,
         )
 
         if authenticated_user is None:
             return api_response(
                 False,
-                "Invalid email or password.",
+                "Invalid credentials.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -174,12 +203,14 @@ class LoginAPIView(APIView):
                 http_status=status.HTTP_403_FORBIDDEN,
             )
 
-        otp = issue_otp(email, OTPPurpose.LOGIN)
-        send_otp_email(email, otp, "Login Verification OTP")
+        otp = issue_otp(user.email, OTPPurpose.LOGIN)
+        send_otp_email(user.email, otp, "Login Verification OTP")
 
-        return api_response(True, "OTP sent successfully.", email=email)
-
-
+        return api_response(
+            True,
+            "OTP sent successfully.",
+            email=user.email,
+        )
 class VerifyLoginOTPAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -304,9 +335,7 @@ class ResetPasswordAPIView(APIView):
         return api_response(True, "Password updated successfully.")
 
 
-# ---------------------------------------------------------------------------
-# Social login — inactive, left untouched.
-# ---------------------------------------------------------------------------
+
 
 # class GoogleLoginAPIView(generics.GenericAPIView):
 #     serializer_class = GoogleLoginSerializer

@@ -101,12 +101,24 @@ class CandidateSignupSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+    login = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+    role = serializers.ChoiceField(choices=UserRole.choices)
 
-    def validate_email(self, value):
-        return value.strip().lower()
+    def validate(self, attrs):
+        login = attrs["login"].strip()
+        role = attrs["role"]
 
+        if role == UserRole.CANDIDATE:
+            try:
+                serializers.EmailField().run_validation(login)
+            except serializers.ValidationError:
+                raise serializers.ValidationError(
+                    {"login": "Please enter a valid email address."}
+                )
+
+        attrs["login"] = login
+        return attrs
 
 class SendOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
