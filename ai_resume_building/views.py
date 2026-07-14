@@ -8,7 +8,7 @@ from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,6 +22,7 @@ from .serializers import (
     ForgotPasswordSerializer,
     LoginSerializer,
     ResetPasswordSerializer,
+   
     SendOTPSerializer,
     VerifyOTPSerializer,
     UserRole
@@ -326,8 +327,7 @@ class ResetPasswordAPIView(APIView):
             reset.is_used = True
             reset.save(update_fields=["is_used"])
 
-            # Invalidate any other outstanding reset tokens for this user
-            # so an older, still-valid link can't be used afterward.
+           
             PasswordResetToken.objects.filter(
                 user=user, is_used=False
             ).exclude(pk=reset.pk).update(is_used=True)
@@ -454,3 +454,4 @@ class ResetPasswordAPIView(APIView):
 #                 },
 #             }
 #         )
+
