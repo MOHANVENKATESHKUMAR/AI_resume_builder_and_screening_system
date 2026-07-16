@@ -455,3 +455,190 @@ class ResetPasswordAPIView(APIView):
 #             }
 #         )
 
+
+
+from django.shortcuts import get_object_or_404
+
+from rest_framework import generics, status
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from .models import Candidate
+from .serializers import ResumeUploadSerializer
+from .services import process_resume
+
+
+class ResumeUploadAPIView(generics.CreateAPIView):
+    serializer_class = ResumeUploadSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        candidate = get_object_or_404(
+            Candidate,
+            user=request.user,
+        )
+
+        resume_file = request.FILES["resume_file"]
+
+        resume = serializer.save(
+            candidate=candidate,
+            original_file_name=resume_file.name,
+            file_size=resume_file.size,
+        )
+
+        process_resume(resume)
+
+        resume.refresh_from_db()
+
+        personal = getattr(resume, "personal_information", None)
+        txt=resume.extracted_text
+        print(txt)
+        return Response(
+            {
+                "success": True,
+                "message": "Resume uploaded and parsed successfully.",
+
+                "resume": {
+                    "id": resume.id,
+                    "status": resume.status,
+                    "original_file_name": resume.original_file_name,
+                    "file_size": resume.file_size,
+                    "uploaded_at": resume.uploaded_at,
+                    "updated_at": resume.updated_at,
+                    "parser_errors": resume.parser_errors,
+                    "extracted_text": resume.extracted_text,
+                
+                },
+
+                "personal_information": (
+                    {
+                        "first_name": personal.first_name,
+                        "last_name": personal.last_name,
+                        "full_name": personal.full_name,
+                        "email": personal.email,
+                        "phone_number": personal.phone_number,
+                        "alternate_phone_number": personal.alternate_phone_number,
+                        "profile_summary": personal.profile_summary,
+                        "nationality": personal.nationality,
+                        "address": personal.address,
+                        "city": personal.city,
+                        "state": personal.state,
+                        "country": personal.country,
+                        "postal_code": personal.postal_code,
+                        "linkedin_url": personal.linkedin_url,
+                        "github_url": personal.github_url,
+                        "portfolio_url": personal.portfolio_url,
+                        "website_url": personal.website_url,
+                    }
+                    if personal
+                    else {}
+                ),
+
+                "education": list(
+                    resume.educations.values(
+                        "id",
+                        "degree",
+                        "field_of_study",
+                        "institution_name",
+                        "university",
+                        "start_date",
+                        "end_date",
+                        "is_current",
+                        "cgpa",
+                        "percentage",
+                        "description",
+                        "display_order",
+                    )
+                ),
+
+                "experience": list(
+                    resume.work_experiences.values(
+                        "id",
+                        "company_name",
+                        "designation",
+                        "employment_type",
+                        "location",
+                        "start_date",
+                        "end_date",
+                        "is_current",
+                        "responsibilities",
+                        "achievements",
+                        "technologies",
+                        "skills_used",
+                        "description",
+                        "display_order",
+                    )
+                ),
+
+                "skills": list(
+                    resume.skills.values(
+                        "id",
+                        "skill_name",
+                        "category",
+                        "proficiency",
+                        "years_of_experience",
+                        "last_used",
+                        "display_order",
+                    )
+                ),
+
+                "projects": list(
+                    resume.projects.values(
+                        "id",
+                        "project_title",
+                        "role",
+                        "organization",
+                        "technologies",
+                        "description",
+                        "responsibilities",
+                        "project_url",
+                        "github_url",
+                        "start_date",
+                        "end_date",
+                        "display_order",
+                    )
+                ),
+
+                "certifications": list(
+                    resume.certifications.values(
+                        "id",
+                        "certification_name",
+                        "issuing_organization",
+                        "issue_date",
+                        "expiry_date",
+                        "credential_id",
+                        "credential_url",
+                        "display_order",
+                    )
+                ),
+
+                "languages": list(
+                    resume.languages.values(
+                        "id",
+                        "language",
+                        "proficiency",
+                        "can_read",
+                        "can_write",
+                        "can_speak",
+                        "display_order",
+                    )
+                ),
+
+                "achievements": list(
+                    resume.achievements.values(
+                        "id",
+                        "title",
+                        "organization",
+                        "achievement_date",
+                        "description",
+                        "display_order",
+                    )
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
