@@ -7,6 +7,7 @@ from django.contrib.auth import authenticate, get_user_model
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
@@ -18,7 +19,8 @@ from ai_resume_building.utils import FRONTEND_RESET_PASSWORD_URL, api_response, 
 
 from .models import OTP, Candidate, OTPPurpose, PasswordResetToken
 from .serializers import (
-    CandidateSignupSerializer,
+    CandidateRegistrationSerializer,
+    RecruiterRegistrationSerializer,
     ForgotPasswordSerializer,
     LoginSerializer,
     ResetPasswordSerializer,
@@ -34,15 +36,15 @@ logger = logging.getLogger(__name__)
 
 
 
-# Signup
+# canditate Registration  with needed email verification 
 
-
-class CandidateSignupView(APIView):
+class CandidateRegistrationView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
-        serializer = CandidateSignupSerializer(data=request.data)
+        serializer = CandidateRegistrationSerializer(data=request.data)
 
         if not serializer.is_valid():
             return api_response(
@@ -53,41 +55,55 @@ class CandidateSignupView(APIView):
 
         email = serializer.validated_data["email"]
 
-       
-        verified_otp = OTP.objects.filter(
-            email=email,
-            purpose=OTPPurpose.SIGNUP,
-            is_verified=True,
-        ).order_by("-created_at").first()
+        verified_otp = (
+            OTP.objects.filter(
+                email=email,
+                purpose=OTPPurpose.SIGNUP,
+                is_verified=True,
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
         if verified_otp is None:
             return api_response(
                 False,
                 http_status=status.HTTP_400_BAD_REQUEST,
-                errors={"email": ["Please verify your email with the OTP before signing up."]},
+                errors={
+                    "email": [
+                        "Please verify your email with the OTP before signing up."
+                    ]
+                },
             )
 
         try:
             with transaction.atomic():
                 user = serializer.save()
+
                 user.is_email_verified = True
                 user.save(update_fields=["is_email_verified"])
+
                 verified_otp.delete()
-                 # Create an empty candidate profile
-                Candidate.objects.create(
-                    user=user
-                )
+
         except IntegrityError:
-            logger.exception("Failed to create user account for email: %s", email)
+            logger.exception(
+                "Failed to create candidate account for email: %s",
+                email,
+            )
+
             return api_response(
                 False,
                 http_status=status.HTTP_400_BAD_REQUEST,
-                errors={"non_field_errors": ["An account with these details already exists."]},
+                errors={
+                    "non_field_errors": [
+                        "An account with these details already exists."
+                    ]
+                },
             )
 
         return api_response(
             True,
-            "User registered successfully.",
+            "Candidate registered successfully.",
             http_status=status.HTTP_201_CREATED,
             data={
                 "id": user.id,
@@ -95,9 +111,89 @@ class CandidateSignupView(APIView):
                 "email": user.email,
                 "phone_number": user.phone_number,
                 "role": user.role,
+                "candidate_id": user.candidate.id,
             },
         )
 
+#recruiter Registration  with needed email verification
+
+
+class RecruiterRegistrationView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = RecruiterRegistrationSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return api_response(
+                False,
+                http_status=status.HTTP_400_BAD_REQUEST,
+                errors=serializer.errors,
+            )
+
+        email = serializer.validated_data["email"]
+
+        verified_otp = (
+            OTP.objects.filter(
+                email=email,
+                purpose=OTPPurpose.SIGNUP,
+                is_verified=True,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if verified_otp is None:
+            return api_response(
+                False,
+                http_status=status.HTTP_400_BAD_REQUEST,
+                errors={
+                    "email": [
+                        "Please verify your email with the OTP before signing up."
+                    ]
+                },
+            )
+
+        try:
+            with transaction.atomic():
+                user = serializer.save()
+
+                user.is_email_verified = True
+                user.save(update_fields=["is_email_verified"])
+
+                verified_otp.delete()
+
+        except IntegrityError:
+            logger.exception(
+                "Failed to create recruiter account for email: %s",
+                email,
+            )
+
+            return api_response(
+                False,
+                http_status=status.HTTP_400_BAD_REQUEST,
+                errors={
+                    "non_field_errors": [
+                        "An account with these details already exists."
+                    ]
+                },
+            )
+
+        return api_response(
+            True,
+            "Recruiter registered successfully.",
+            http_status=status.HTTP_201_CREATED,
+            data={
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "role": user.role,
+                "recruiter_id": user.recruiter.id,
+            },
+        )
+    
 
 class SendSignupOTPAPIView(APIView):
     permission_classes = [AllowAny]
