@@ -366,7 +366,6 @@ class VerifyLoginOTPAPIView(APIView):
 
 # Forgot / reset password
 
-
 class ForgotPasswordAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -375,18 +374,22 @@ class ForgotPasswordAPIView(APIView):
         serializer.is_valid(raise_exception=True)
 
         email = serializer.validated_data["email"]
-        user = User.objects.filter(email=email).first()
+        role = serializer.validated_data["role"]
 
-        if user is not None:
+        user = User.objects.filter(
+            email__iexact=email,
+            role=role,
+        ).first()
+
+        if user:
             reset = PasswordResetToken.objects.create(user=user)
             reset_link = f"{FRONTEND_RESET_PASSWORD_URL}?token={reset.token}"
-
             send_reset_password_email(user, reset_link)
 
-            return api_response(
-                    True,
-                    "If an account exists for this email, a password reset link has been sent.",
-                )
+        return api_response(
+            True,
+            "If an account exists for this email, a password reset link has been sent.",
+        )
 
 
 class ResetPasswordAPIView(APIView):

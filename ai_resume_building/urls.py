@@ -8,6 +8,7 @@ SendSignupOTPAPIView, VerifyLoginOTPAPIView, VerifySignupOTPAPIView)
 urlpatterns = [
      #candidate regristration with email verification
     path("candidate/signup/", CandidateRegistrationView.as_view(), name="candidate-signup",),
+    #recruiter registration with email verification
     path("recruiter/signup/",RecruiterRegistrationView.as_view(),name="recruiter-signup",),
     #login with password and otp verification
     path("login/", LoginAPIView.as_view(), name="login"),

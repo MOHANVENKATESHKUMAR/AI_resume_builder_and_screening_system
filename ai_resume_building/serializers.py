@@ -356,6 +356,7 @@ class VerifyOTPSerializer(serializers.Serializer):
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=UserRole.choices)
     email = serializers.EmailField()
 
     def validate_email(self, value):
