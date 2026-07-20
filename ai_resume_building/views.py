@@ -364,7 +364,7 @@ class VerifyLoginOTPAPIView(APIView):
 
 
 
-# Forgot / reset password
+# Forgot / reset passwords
 
 class ForgotPasswordAPIView(APIView):
     permission_classes = [AllowAny]
