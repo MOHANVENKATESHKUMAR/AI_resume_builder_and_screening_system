@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 
-# canditate Registration  with needed email verification 
+# canditate Registration  with needed email verify
 
 class CandidateRegistrationView(APIView):
     authentication_classes = []
