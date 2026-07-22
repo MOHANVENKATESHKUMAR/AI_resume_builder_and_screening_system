@@ -340,7 +340,7 @@ class VerifyLoginOTPAPIView(APIView):
             user.save(update_fields=["last_login"])
 
         refresh = RefreshToken.for_user(user)
-        ip_address = get_client_ip(request)
+        #ip_address = get_client_ip(request)
 
         return api_response(
             True,
@@ -355,11 +355,11 @@ class VerifyLoginOTPAPIView(APIView):
                 "phone_number": user.phone_number,
                 "is_email_verified": user.is_email_verified,
                 "is_phone_verified": user.is_phone_verified,
-            },
-            login_info={
-                "last_login": user.last_login.strftime("%d-%m-%Y %I:%M:%S %p"),
-                "ip_address": ip_address,
-            },
+            }
+        #     login_info={
+        #         "last_login": user.last_login.strftime("%d-%m-%Y %I:%M:%S %p"),
+        #         "ip_address": ip_address,
+        #     },
         )
 
 
