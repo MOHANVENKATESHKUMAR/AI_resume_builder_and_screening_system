@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from rest_framework import serializers
 
-from ai_resume_building.models import User, UserRole , Candidate , Recruiter, Resume
+from ai_resume_building.models import User, UserRole , Candidate , Recruiter
 
 
 
@@ -386,11 +386,3 @@ class ResetPasswordSerializer(serializers.Serializer):
 #     code = serializers.CharField()
 
 
-from rest_framework import serializers
-from .models import Candidate, Resume
-
-
-class ResumeUploadSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Resume
-        fields = ["resume_file"]

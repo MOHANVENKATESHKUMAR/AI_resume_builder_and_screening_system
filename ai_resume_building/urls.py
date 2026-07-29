@@ -1,7 +1,7 @@
 from django.urls import path
 
 from ai_resume_building.views import( 
-CandidateRegistrationView, ForgotPasswordAPIView, LoginAPIView, RecruiterRegistrationView, ResetPasswordAPIView, ResumeUploadAPIView, 
+CandidateProfileAPIView, CandidateRegistrationView, ForgotPasswordAPIView, LoginAPIView, RecruiterRegistrationView, ResetPasswordAPIView,  
 SendSignupOTPAPIView, VerifyLoginOTPAPIView, VerifySignupOTPAPIView)
 
 
@@ -22,9 +22,9 @@ urlpatterns = [
     path("forgot-password/",ForgotPasswordAPIView.as_view(),name="forgot-password",),
     #RESET PASSWORD WITH TOKEN NEED TO VERIFY
     path("reset-password/",ResetPasswordAPIView.as_view(),name="reset-password",),
+     path("profile/",CandidateProfileAPIView.as_view(),name="candidate-profile",),
 
-    #for testing purpose only
-    path("resume/upload/",ResumeUploadAPIView.as_view(),name="resume-upload",),
+  
 
     
 

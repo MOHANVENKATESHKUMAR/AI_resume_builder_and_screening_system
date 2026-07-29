@@ -46,7 +46,7 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
-
+    
 class Candidate(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -54,8 +54,11 @@ class Candidate(models.Model):
         related_name="candidate",
     )
 
+    # Personal Information
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100, blank=True)
+    headline = models.CharField(max_length=255, blank=True)
+    about_me = models.TextField(blank=True)
 
     profile_image = models.ImageField(
         upload_to="candidate/profile/",
@@ -63,13 +66,47 @@ class Candidate(models.Model):
         null=True,
     )
 
-    resume = models.FileField(
-        upload_to="candidate/resume/",
-        blank=True,
-        null=True,
+    
+
+    # Contact
+    
+    alternate_phone = models.CharField(max_length=20, blank=True)
+
+    # Location
+    location = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+
+    # Social Links
+    linkedin_url = models.URLField(blank=True)
+    github_url = models.URLField(blank=True)
+    portfolio_url = models.URLField(blank=True)
+    website_url = models.URLField(blank=True)
+
+    # Career
+    current_company = models.CharField(max_length=255, blank=True)
+    current_designation = models.CharField(max_length=255, blank=True)
+    total_experience = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
     )
 
-    degree = models.CharField(max_length=150)
+    highest_qualification = models.CharField(max_length=255, blank=True)
+
+    # Scores
+    profile_strength = models.PositiveSmallIntegerField(default=0)
+    ats_score = models.PositiveSmallIntegerField(default=0)
+
+    # Active Resume Version
+    active_resume = models.ForeignKey(
+        "ResumeParsedData",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="active_candidates",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -164,546 +201,313 @@ class PasswordResetToken(models.Model):
 
     def is_valid(self):
         return not self.is_used and self.expires_at > timezone.now()
-    
 
 
+# while registering and parsing the resume we will store the parsed data in this model and also keep the history of all the parsed data for a candidate
+class ResumeParsedData(models.Model):
 
-class ResumeStatus(models.TextChoices):
-    PENDING = "PENDING", "Pending"
-    PROCESSING = "PROCESSING", "Processing"
-    COMPLETED = "COMPLETED", "Completed"
-    FAILED = "FAILED", "Failed"
-
-
-class ResumeSource(models.TextChoices):
-    UPLOAD = "UPLOAD", "Upload"
-    LINKEDIN = "LINKEDIN", "LinkedIn"
-    INDEED = "INDEED", "Indeed"
-    MANUAL = "MANUAL", "Manual"
-
-
-class ParserType(models.TextChoices):
-    SPACY = "SPACY", "spaCy"
-    OCR = "OCR", "OCR"
-    LLM = "LLM", "LLM"
-    HYBRID = "HYBRID", "Hybrid"
-
-
-class OCRProvider(models.TextChoices):
-    TESSERACT = "TESSERACT", "Tesseract"
-    PADDLEOCR = "PADDLEOCR", "PaddleOCR"
-    EASYOCR = "EASYOCR", "EasyOCR"
-    NONE = "NONE", "None"
-
-
-def resume_upload_path(instance, filename):
-    extension = filename.split(".")[-1]
-    return (
-        f"candidate/resume/"
-        f"{instance.candidate.id}/"
-        f"{uuid.uuid4().hex}.{extension}"
-    )
- 
-
-class Resume(models.Model):
     candidate = models.ForeignKey(
         Candidate,
         on_delete=models.CASCADE,
-        related_name="resumes",
+        related_name="resume_versions",
     )
+
+    version = models.PositiveIntegerField()
+
+    is_active = models.BooleanField(default=True)
 
     resume_file = models.FileField(
-        upload_to="candidate/resume/",
+        upload_to="candidate/resume/history/"
     )
 
-    original_file_name = models.CharField(
-        max_length=255,
-    )
+    # Backup Personal Information
+    first_name = models.CharField(max_length=100)
 
-    file_size = models.BigIntegerField()
+    last_name = models.CharField(max_length=100, blank=True)
 
-    status = models.CharField(
-        max_length=20,
-        choices=ResumeStatus.choices,
-        default=ResumeStatus.PENDING,
-    )
+    headline = models.CharField(max_length=255, blank=True)
 
-    extracted_text = models.TextField(
-        blank=True,
-    )
+    about_me = models.TextField(blank=True)
 
-    parser_errors = models.JSONField(
-        default=list,
-        blank=True,
-    )
+    email = models.EmailField(blank=True)
 
-    uploaded_at = models.DateTimeField(
-        auto_now_add=True,
-    )
+    phone = models.CharField(max_length=20, blank=True)
 
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
+    alternate_phone = models.CharField(max_length=20, blank=True)
 
-    class Meta:
-        db_table = "resume"
-        ordering = ["-uploaded_at"]
+    location = models.CharField(max_length=255, blank=True)
 
-    def __str__(self):
-        return self.original_file_name
-    
+    city = models.CharField(max_length=100, blank=True)
 
-class ResumePersonalInformation(models.Model):
-    resume = models.OneToOneField(
-        Resume,
-        on_delete=models.CASCADE,
-        related_name="personal_information",
-    )
+    state = models.CharField(max_length=100, blank=True)
 
-    first_name = models.CharField(
-        max_length=100,
-        blank=True,
-    )
+    country = models.CharField(max_length=100, blank=True)
 
-    last_name = models.CharField(
-        max_length=100,
-        blank=True,
-    )
+    linkedin_url = models.URLField(blank=True)
 
-    full_name = models.CharField(
-        max_length=255,
-        blank=True,
-    )
+    github_url = models.URLField(blank=True)
 
-    email = models.EmailField(
-        blank=True,
-    )
+    portfolio_url = models.URLField(blank=True)
 
-    phone_number = models.CharField(
-        max_length=20,
-        blank=True,
-    )
+    website_url = models.URLField(blank=True)
 
-    alternate_phone_number = models.CharField(
-        max_length=20,
-        blank=True,
-    )
+    current_company = models.CharField(max_length=255, blank=True)
 
-    profile_summary = models.TextField(
-        blank=True,
-    )
+    current_designation = models.CharField(max_length=255, blank=True)
 
-    date_of_birth = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    gender = models.CharField(
-        max_length=50,
-        blank=True,
-    )
-
-    nationality = models.CharField(
-        max_length=100,
-        blank=True,
-    )
-
-    address = models.TextField(
-        blank=True,
-    )
-
-    city = models.CharField(
-        max_length=100,
-        blank=True,
-    )
-
-    state = models.CharField(
-        max_length=100,
-        blank=True,
-    )
-
-    country = models.CharField(
-        max_length=100,
-        blank=True,
-    )
-
-    postal_code = models.CharField(
-        max_length=20,
-        blank=True,
-    )
-
-    linkedin_url = models.URLField(
-        blank=True,
-    )
-
-    github_url = models.URLField(
-        blank=True,
-    )
-
-    portfolio_url = models.URLField(
-        blank=True,
-    )
-
-    website_url = models.URLField(
-        blank=True,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
-
-    class Meta:
-        db_table = "resume_personal_information"
-
-    def __str__(self):
-        return self.full_name or f"Resume {self.resume_id}"
-    
-
-class ResumeEducation(models.Model):
-    resume = models.ForeignKey(
-        Resume,
-        on_delete=models.CASCADE,
-        related_name="educations",
-    )
-
-    degree = models.CharField(
-        max_length=255,
-    )
-
-    field_of_study = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    institution_name = models.CharField(
-        max_length=255,
-    )
-
-    university = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    board = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    location = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    start_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    end_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    is_current = models.BooleanField(
-        default=False,
-    )
-
-    cgpa = models.DecimalField(
-        max_digits=4,
-        decimal_places=2,
-        null=True,
-        blank=True,
-    )
-
-    percentage = models.DecimalField(
+    total_experience = models.DecimalField(
         max_digits=5,
-        decimal_places=2,
-        null=True,
-        blank=True,
+        decimal_places=1,
+        default=0,
     )
 
-    grade = models.CharField(
-        max_length=50,
-        blank=True,
-    )
-
-    description = models.TextField(
-        blank=True,
-    )
-
-    display_order = models.PositiveIntegerField(
-        default=1,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
-
-    class Meta:
-        db_table = "resume_education"
-        ordering = ["display_order", "-end_date"]
-
-    def __str__(self):
-        return f"{self.degree} - {self.institution_name}"
-    
-
-class EmploymentType(models.TextChoices):
-    FULL_TIME = "FULL_TIME", "Full Time"
-    PART_TIME = "PART_TIME", "Part Time"
-    CONTRACT = "CONTRACT", "Contract"
-    INTERNSHIP = "INTERNSHIP", "Internship"
-    FREELANCE = "FREELANCE", "Freelance"
-    TEMPORARY = "TEMPORARY", "Temporary"
-    APPRENTICESHIP = "APPRENTICESHIP", "Apprenticeship"
-    
-class ResumeWorkExperience(models.Model):
-    resume = models.ForeignKey(
-        Resume,
-        on_delete=models.CASCADE,
-        related_name="work_experiences",
-    )
-
-    company_name = models.CharField(
+    highest_qualification = models.CharField(
         max_length=255,
+        blank=True,
     )
 
-    designation = models.CharField(
-        max_length=255,
-    )
+    profile_strength = models.PositiveSmallIntegerField(default=0)
 
-    employment_type = models.CharField(
+    ats_score = models.PositiveSmallIntegerField(default=0)
+
+    parser_status = models.CharField(
         max_length=30,
-        choices=EmploymentType.choices,
+        default="PENDING",
+    )
+
+    parser_version = models.CharField(
+        max_length=30,
+        default="1.0",
+    )
+
+    raw_resume_text = models.TextField(blank=True)
+
+    extra_data = models.JSONField(
+        default=dict,
         blank=True,
     )
 
-    location = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    start_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    end_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    is_current = models.BooleanField(
-        default=False,
-    )
-
-    responsibilities = models.JSONField(
-        default=list,
-        blank=True,
-    )
-
-    achievements = models.JSONField(
-        default=list,
-        blank=True,
-    )
-
-    technologies = models.JSONField(
-        default=list,
-        blank=True,
-    )
-
-    skills_used = models.JSONField(
-        default=list,
-        blank=True,
-    )
-
-    description = models.TextField(
-        blank=True,
-    )
-
-    display_order = models.PositiveIntegerField(
-        default=1,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "resume_work_experience"
-        ordering = ["display_order", "-start_date"]
+        db_table = "resume_parsed_data"
 
-    def __str__(self):
-        return f"{self.designation} - {self.company_name}"
+        ordering = ["-version"]
+        indexes = [
+        models.Index(fields=["candidate"]),
+        models.Index(fields=["candidate", "is_active"]),
+    ]
 
-
-class SkillCategory(models.TextChoices):
-    TECHNICAL = "TECHNICAL", "Technical"
-    SOFT = "SOFT", "Soft Skill"
-    LANGUAGE = "LANGUAGE", "Programming Language"
-    FRAMEWORK = "FRAMEWORK", "Framework"
-    DATABASE = "DATABASE", "Database"
-    TOOL = "TOOL", "Tool"
-    CLOUD = "CLOUD", "Cloud"
-    OTHER = "OTHER", "Other"
-
-
-class ProficiencyLevel(models.TextChoices):
-    BEGINNER = "BEGINNER", "Beginner"
-    INTERMEDIATE = "INTERMEDIATE", "Intermediate"
-    ADVANCED = "ADVANCED", "Advanced"
-    EXPERT = "EXPERT", "Expert"
-
-class ResumeSkill(models.Model):
-    resume = models.ForeignKey(
-        Resume,
+class CandidateSkill(models.Model):
+    candidate = models.ForeignKey(
+        Candidate,
         on_delete=models.CASCADE,
         related_name="skills",
     )
 
-    skill_name = models.CharField(
-        max_length=150,
-    )
-
-    category = models.CharField(
-        max_length=30,
-        choices=SkillCategory.choices,
-        default=SkillCategory.OTHER,
-    )
-
-    proficiency = models.CharField(
-        max_length=30,
-        choices=ProficiencyLevel.choices,
+    resume_version = models.ForeignKey(
+        ResumeParsedData,
+        on_delete=models.CASCADE,
+        related_name="skills",
+        null=True,
         blank=True,
+    )
+
+    skill_name = models.CharField(max_length=150)
+
+    proficiency = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[
+            MinValueValidator(0),
+            MaxValueValidator(10),
+        ],
     )
 
     years_of_experience = models.DecimalField(
         max_digits=4,
         decimal_places=1,
-        null=True,
-        blank=True,
+        default=0,
     )
 
-    last_used = models.PositiveSmallIntegerField(
-        null=True,
-        blank=True,
-        help_text="Year last used (e.g. 2026)",
-    )
+    is_primary = models.BooleanField(default=False)
 
-    display_order = models.PositiveIntegerField(
-        default=1,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
-
-    class Meta:
-        db_table = "resume_skill"
-        ordering = ["display_order", "skill_name"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["resume", "skill_name"],
-                name="unique_resume_skill",
-            )
-        ]
-
-    def __str__(self):
-        return self.skill_name
-
-class ResumeProject(models.Model):
-    resume = models.ForeignKey(
-        Resume,
-        on_delete=models.CASCADE,
-        related_name="projects",
-    )
-
-    project_title = models.CharField(max_length=255)
-
-    role = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    organization = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    technologies = models.JSONField(
-        default=list,
-        blank=True,
-    )
-
-    description = models.TextField(
-        blank=True,
-    )
-
-    responsibilities = models.JSONField(
-        default=list,
-        blank=True,
-    )
-
-    project_url = models.URLField(
-        blank=True,
-    )
-
-    github_url = models.URLField(
-        blank=True,
-    )
-
-    start_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    end_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    display_order = models.PositiveIntegerField(default=1)
+    is_from_resume = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "resume_project"
-        ordering = ["display_order", "-start_date"]
+        db_table = "candidate_skill"
+        ordering = ["skill_name"]
+        indexes = [
+        models.Index(fields=["candidate"]),
+        models.Index(fields=["resume_version"]),
+        models.Index(fields=["skill_name"]),
+    ]
 
     def __str__(self):
-        return self.project_title
+        return self.skill_name
 
 
-class ResumeCertification(models.Model):
-    resume = models.ForeignKey(
-        Resume,
+class CandidateEducation(models.Model):
+    candidate = models.ForeignKey(
+        Candidate,
+        on_delete=models.CASCADE,
+        related_name="educations",
+    )
+
+    resume_version = models.ForeignKey(
+        ResumeParsedData,
+        on_delete=models.CASCADE,
+        related_name="educations",
+        null=True,
+        blank=True,
+    )
+
+    degree = models.CharField(max_length=255)
+
+    specialization = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    institution = models.CharField(max_length=255)
+
+    board = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+
+    cgpa = models.CharField(
+        max_length=20,
+        blank=True,
+    )
+
+    percentage = models.CharField(
+        max_length=20,
+        blank=True,
+    )
+
+    start_year = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    end_year = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    is_from_resume = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "candidate_education"
+        ordering = ["-end_year"]
+        indexes = [
+        models.Index(fields=["candidate"]),
+        models.Index(fields=["resume_version"]),
+        models.Index(fields=["degree"]),
+    ]
+
+    def __str__(self):
+        return self.degree
+
+
+
+class CandidateExperience(models.Model):
+    candidate = models.ForeignKey(
+        Candidate,
+        on_delete=models.CASCADE,
+        related_name="experiences",
+    )
+
+    resume_version = models.ForeignKey(
+        ResumeParsedData,
+        on_delete=models.CASCADE,
+        related_name="experiences",
+        null=True,
+        blank=True,
+    )
+
+    company_name = models.CharField(max_length=255)
+
+    designation = models.CharField(max_length=255)
+
+    employment_type = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+
+    location = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    start_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    end_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    currently_working = models.BooleanField(default=False)
+
+    description = models.TextField(blank=True)
+
+    is_from_resume = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "candidate_experience"
+        ordering = ["-start_date"]
+        indexes = [
+        models.Index(fields=["candidate"]),
+        models.Index(fields=["resume_version"]),
+        models.Index(fields=["company_name"]),
+    ]
+
+    def __str__(self):
+        return self.designation
+
+
+class CandidateCertification(models.Model):
+    candidate = models.ForeignKey(
+        Candidate,
         on_delete=models.CASCADE,
         related_name="certifications",
     )
 
-    certification_name = models.CharField(max_length=255)
+    resume_version = models.ForeignKey(
+        ResumeParsedData,
+        on_delete=models.CASCADE,
+        related_name="certifications",
+        null=True,
+        blank=True,
+    )
+
+    certificate_name = models.CharField(max_length=255)
 
     issuing_organization = models.CharField(
         max_length=255,
+    )
+
+    credential_id = models.CharField(
+        max_length=255,
         blank=True,
     )
+
+    credential_url = models.URLField(blank=True)
 
     issue_date = models.DateField(
         null=True,
@@ -715,49 +519,45 @@ class ResumeCertification(models.Model):
         blank=True,
     )
 
-    credential_id = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    credential_url = models.URLField(
-        blank=True,
-    )
-
-    display_order = models.PositiveIntegerField(default=1)
+    is_from_resume = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "resume_certification"
-        ordering = ["display_order", "-issue_date"]
+        db_table = "candidate_certification"
+        ordering = ["certificate_name"]
+        indexes = [
+        models.Index(fields=["candidate"]),
+        models.Index(fields=["resume_version"]),
+        models.Index(fields=["certificate_name"]),
+    ]
 
     def __str__(self):
-        return self.certification_name
-    
-
-class LanguageProficiency(models.TextChoices):
-    BASIC = "BASIC", "Basic"
-    INTERMEDIATE = "INTERMEDIATE", "Intermediate"
-    FLUENT = "FLUENT", "Fluent"
-    NATIVE = "NATIVE", "Native"
+        return self.certificate_name
 
 
-class ResumeLanguage(models.Model):
-    resume = models.ForeignKey(
-        Resume,
+class CandidateLanguage(models.Model):
+    candidate = models.ForeignKey(
+        Candidate,
         on_delete=models.CASCADE,
         related_name="languages",
+    )
+
+    resume_version = models.ForeignKey(
+        ResumeParsedData,
+        on_delete=models.CASCADE,
+        related_name="languages",
+        null=True,
+        blank=True,
     )
 
     language = models.CharField(max_length=100)
 
     proficiency = models.CharField(
-        max_length=30,
-        choices=LanguageProficiency.choices,
-        default=LanguageProficiency.BASIC,
+        max_length=50,
+        blank=True,
     )
 
     can_read = models.BooleanField(default=True)
@@ -766,87 +566,20 @@ class ResumeLanguage(models.Model):
 
     can_speak = models.BooleanField(default=True)
 
-    display_order = models.PositiveIntegerField(default=1)
+    is_from_resume = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "resume_language"
-        ordering = ["display_order", "language"]
+        db_table = "candidate_language"
+        ordering = ["language"]
+        indexes = [
+        models.Index(fields=["candidate"]),
+        models.Index(fields=["resume_version"]),
+        models.Index(fields=["language"]),
+    ]
 
     def __str__(self):
         return self.language
-
-
-class ResumeAchievement(models.Model):
-    resume = models.ForeignKey(
-        Resume,
-        on_delete=models.CASCADE,
-        related_name="achievements",
-    )
-
-    title = models.CharField(max_length=255)
-
-    organization = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    achievement_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    description = models.TextField(
-        blank=True,
-    )
-
-    display_order = models.PositiveIntegerField(default=1)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "resume_achievement"
-
-    def __str__(self):
-        return self.title
-    
-
-class ResumeCustomSection(models.Model):
-    resume = models.ForeignKey(
-        Resume,
-        on_delete=models.CASCADE,
-        related_name="custom_sections",
-    )
-
-    section_name = models.CharField(
-        max_length=255,
-    )
-
-    section_data = models.JSONField(
-        default=dict,
-        blank=True,
-    )
-
-    display_order = models.PositiveIntegerField(
-        default=1,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
-
-    class Meta:
-        db_table = "resume_custom_section"
-        ordering = ["display_order"]
-
-    def __str__(self):
-        return self.section_name
