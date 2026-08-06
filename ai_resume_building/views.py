@@ -560,7 +560,6 @@ class ResetPasswordAPIView(APIView):
 
 
 
-
 #for candidate profile page 
 class CandidateProfileAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -594,7 +593,6 @@ class CandidateProfileAPIView(APIView):
             "languages": self._get_languages(candidate),
         })
 
-  
 
     def _get_profile(self, candidate):
         return {
@@ -793,3 +791,68 @@ class CandidateProfileAPIView(APIView):
             })
 
         return data
+
+
+class CandidateHeaderAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            candidate = Candidate.objects.select_related("user").get(
+                user=request.user
+            )
+
+            return api_response(
+                True,
+                "Header profile fetched successfully.",
+                data={
+                    "id": candidate.id,
+                    "full_name": f"{candidate.first_name} {candidate.last_name}".strip(),
+                    "first_name": candidate.first_name,
+                    "last_name": candidate.last_name,
+                    "email": candidate.user.email,
+                    "role": candidate.user.role,
+                    "profile_image": (
+                        candidate.profile_image.url
+                        if candidate.profile_image
+                        else None
+                    ),
+                },
+            )
+
+        except Candidate.DoesNotExist:
+            return api_response(
+                False,
+                "Candidate profile not found.",
+                http_status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+class LogoutAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        refresh_token = request.data.get("refresh")
+
+        if not refresh_token:
+            return api_response(
+                False,
+                "Refresh token is required.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+
+            return api_response(
+                True,
+                "Logged out successfully.",
+            )
+
+        except Exception:
+            return api_response(
+                False,
+                "Invalid or expired refresh token.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
