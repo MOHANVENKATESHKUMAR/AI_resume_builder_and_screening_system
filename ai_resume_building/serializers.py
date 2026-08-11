@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from rest_framework import serializers
 
-from ai_resume_building.models import User, UserRole , Candidate , Recruiter, Resume
+from ai_resume_building.models import User, UserRole , Candidate , Recruiter
 
 
 
@@ -46,7 +46,7 @@ class CandidateRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "full_name",
+            "full_name", 
             "username",
             "email",
             "phone_number",
@@ -287,7 +287,9 @@ class RecruiterRegistrationSerializer(serializers.ModelSerializer):
         company_website = validated_data.pop("company_website", "")
         company_location = validated_data.pop("company_location")
         industry_type = validated_data.pop("industry_type")
-
+        name_parts = full_name.split(maxsplit=1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
         validated_data.pop("confirm_password")
         password = validated_data.pop("password")
 
@@ -303,7 +305,8 @@ class RecruiterRegistrationSerializer(serializers.ModelSerializer):
 
         Recruiter.objects.create(
             user=user,
-            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
             recruiter_name=recruiter_name,
             designation=designation,
             company_name=company_name,
@@ -386,11 +389,5 @@ class ResetPasswordSerializer(serializers.Serializer):
 #     code = serializers.CharField()
 
 
-from rest_framework import serializers
-from .models import Candidate, Resume
 
 
-class ResumeUploadSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Resume
-        fields = ["resume_file"]

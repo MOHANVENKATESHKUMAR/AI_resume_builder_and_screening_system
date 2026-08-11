@@ -2,6 +2,10 @@ import logging
 import secrets
 from datetime import timedelta
 
+from rest_framework.permissions import IsAuthenticated
+
+
+
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core.mail import send_mail
@@ -556,188 +560,302 @@ class ResetPasswordAPIView(APIView):
 
 
 
-from django.shortcuts import get_object_or_404
-
-from rest_framework import generics, status
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-
-from .models import Candidate
-from .serializers import ResumeUploadSerializer
-from .services import process_resume
-
-
-class ResumeUploadAPIView(generics.CreateAPIView):
-    serializer_class = ResumeUploadSerializer
+#for candidate profile page 
+class CandidateProfileAPIView(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def get(self, request):
 
-        candidate = get_object_or_404(
-            Candidate,
-            user=request.user,
+        candidate = (
+            Candidate.objects.select_related(
+                "user",
+                "active_resume",
+            )
+            .prefetch_related(
+                "skills",
+                "educations",
+                "experiences",
+                "certifications",
+                "languages",
+            )
+            .get(user=request.user)
         )
 
-        resume_file = request.FILES["resume_file"]
+        return Response({
+            "profile": self._get_profile(candidate),
+            "profile_strength": self._calculate_profile_strength(candidate),
+            "professional_highlights": self._get_professional_highlights(candidate),
+            "profile_highlights": self._get_profile_highlights(candidate),
+            "skill_competency": self._get_skill_competency(candidate),
+            "experience": self._get_experience(candidate),
+            "education": self._get_education(candidate),
+            "certifications": self._get_certifications(candidate),
+            "languages": self._get_languages(candidate),
+        })
 
-        resume = serializer.save(
-            candidate=candidate,
-            original_file_name=resume_file.name,
-            file_size=resume_file.size,
-        )
 
-        process_resume(resume)
+    def _get_profile(self, candidate):
+        return {
+            "id": candidate.id,
+            "profile_image": candidate.profile_image.url if candidate.profile_image else None,
+            "first_name": candidate.first_name,
+            "last_name": candidate.last_name,
+            "full_name": f"{candidate.first_name} {candidate.last_name}".strip(),
+            "headline": candidate.headline,
+            "about_me": candidate.about_me,
+            "email": candidate.user.email,
+            "phone": candidate.user.phone_number,
+            "location": candidate.location,
+            "linkedin": candidate.linkedin_url,
+        }
 
-        resume.refresh_from_db()
 
-        personal = getattr(resume, "personal_information", None)
-        txt=resume.extracted_text
-        print(txt)
-        return Response(
+    def _calculate_profile_strength(self, candidate):
+
+        score = 0
+
+        if candidate.profile_image:
+            score += 10
+
+        if candidate.first_name:
+            score += 10
+
+        if candidate.headline:
+            score += 10
+
+        if candidate.about_me:
+            score += 10
+
+        if candidate.location:
+            score += 10
+
+        if candidate.linkedin_url:
+            score += 10
+
+        if candidate.skills.exists():
+            score += 15
+
+        if candidate.educations.exists():
+            score += 10
+
+        if candidate.experiences.exists():
+            score += 10
+
+        if candidate.languages.exists():
+            score += 5
+
+        if score >= 90:
+            status = "Excellent"
+        elif score >= 70:
+            status = "Good"
+        elif score >= 50:
+            status = "Average"
+        else:
+            status = "Beginner"
+
+        return {
+            "percentage": score,
+            "status": status,
+        }
+
+ 
+
+    def _get_professional_highlights(self, candidate):
+        return {
+            "experience_years": candidate.total_experience,
+            "highest_degree": candidate.highest_qualification,
+            "total_certifications": candidate.certifications.count(),
+            "total_skills": candidate.skills.count(),
+        }
+
+  
+
+    def _get_profile_highlights(self, candidate):
+
+        return [
             {
-                "success": True,
-                "message": "Resume uploaded and parsed successfully.",
-
-                "resume": {
-                    "id": resume.id,
-                    "status": resume.status,
-                    "original_file_name": resume.original_file_name,
-                    "file_size": resume.file_size,
-                    "uploaded_at": resume.uploaded_at,
-                    "updated_at": resume.updated_at,
-                    "parser_errors": resume.parser_errors,
-                    "extracted_text": resume.extracted_text,
-                
-                },
-
-                "personal_information": (
-                    {
-                        "first_name": personal.first_name,
-                        "last_name": personal.last_name,
-                        "full_name": personal.full_name,
-                        "email": personal.email,
-                        "phone_number": personal.phone_number,
-                        "alternate_phone_number": personal.alternate_phone_number,
-                        "profile_summary": personal.profile_summary,
-                        "nationality": personal.nationality,
-                        "address": personal.address,
-                        "city": personal.city,
-                        "state": personal.state,
-                        "country": personal.country,
-                        "postal_code": personal.postal_code,
-                        "linkedin_url": personal.linkedin_url,
-                        "github_url": personal.github_url,
-                        "portfolio_url": personal.portfolio_url,
-                        "website_url": personal.website_url,
-                    }
-                    if personal
-                    else {}
-                ),
-
-                "education": list(
-                    resume.educations.values(
-                        "id",
-                        "degree",
-                        "field_of_study",
-                        "institution_name",
-                        "university",
-                        "start_date",
-                        "end_date",
-                        "is_current",
-                        "cgpa",
-                        "percentage",
-                        "description",
-                        "display_order",
-                    )
-                ),
-
-                "experience": list(
-                    resume.work_experiences.values(
-                        "id",
-                        "company_name",
-                        "designation",
-                        "employment_type",
-                        "location",
-                        "start_date",
-                        "end_date",
-                        "is_current",
-                        "responsibilities",
-                        "achievements",
-                        "technologies",
-                        "skills_used",
-                        "description",
-                        "display_order",
-                    )
-                ),
-
-                "skills": list(
-                    resume.skills.values(
-                        "id",
-                        "skill_name",
-                        "category",
-                        "proficiency",
-                        "years_of_experience",
-                        "last_used",
-                        "display_order",
-                    )
-                ),
-
-                "projects": list(
-                    resume.projects.values(
-                        "id",
-                        "project_title",
-                        "role",
-                        "organization",
-                        "technologies",
-                        "description",
-                        "responsibilities",
-                        "project_url",
-                        "github_url",
-                        "start_date",
-                        "end_date",
-                        "display_order",
-                    )
-                ),
-
-                "certifications": list(
-                    resume.certifications.values(
-                        "id",
-                        "certification_name",
-                        "issuing_organization",
-                        "issue_date",
-                        "expiry_date",
-                        "credential_id",
-                        "credential_url",
-                        "display_order",
-                    )
-                ),
-
-                "languages": list(
-                    resume.languages.values(
-                        "id",
-                        "language",
-                        "proficiency",
-                        "can_read",
-                        "can_write",
-                        "can_speak",
-                        "display_order",
-                    )
-                ),
-
-                "achievements": list(
-                    resume.achievements.values(
-                        "id",
-                        "title",
-                        "organization",
-                        "achievement_date",
-                        "description",
-                        "display_order",
-                    )
+                "title": "Personal Information",
+                "completed": bool(
+                    candidate.first_name
+                    and candidate.location
+                    and candidate.user.email
                 ),
             },
-            status=status.HTTP_201_CREATED,
-        )
+            {
+                "title": "Experience",
+                "completed": candidate.experiences.exists(),
+            },
+            {
+                "title": "Skills",
+                "completed": candidate.skills.exists(),
+            },
+            {
+                "title": "Education",
+                "completed": candidate.educations.exists(),
+            },
+            {
+                "title": "Languages",
+                "completed": candidate.languages.exists(),
+            },
+        ]
+
+
+
+    def _get_skill_competency(self, candidate):
+
+        data = []
+
+        for skill in candidate.skills.all():
+
+            rating = skill.proficiency or 10
+
+            data.append({
+                "id": skill.id,
+                "skill": skill.skill_name,
+                "rating": rating,
+                "percentage": rating * 10,
+            })
+
+        return data
+
+
+    def _get_experience(self, candidate):
+
+        data = []
+
+        for exp in candidate.experiences.all():
+            data.append({
+                "id": exp.id,
+                "company": exp.company_name,
+                "designation": exp.designation,
+                "employment_type": exp.employment_type,
+                "location": exp.location,
+                "start_date": exp.start_date,
+                "end_date": exp.end_date,
+                "currently_working": exp.currently_working,
+                "description": exp.description,
+            })
+
+        return data
+
+
+
+    def _get_education(self, candidate):
+
+        data = []
+
+        for edu in candidate.educations.all():
+            data.append({
+                "id": edu.id,
+                "degree": edu.degree,
+                "institution": edu.institution,
+                "specialization": edu.specialization,
+                "cgpa": edu.cgpa,
+                "percentage": edu.percentage,
+                "start_year": edu.start_year,
+                "end_year": edu.end_year,
+            })
+
+        return data
+
+   
+    def _get_certifications(self, candidate):
+
+        data = []
+
+        for cert in candidate.certifications.all():
+            data.append({
+                "id": cert.id,
+                "certificate_name": cert.certificate_name,
+                "issuing_organization": cert.issuing_organization,
+                "issue_date": cert.issue_date,
+                "expiry_date": cert.expiry_date,
+                "credential_url": cert.credential_url,
+            })
+
+        return data
+
+
+    def _get_languages(self, candidate):
+
+        data = []
+
+        for lang in candidate.languages.all():
+            data.append({
+                "id": lang.id,
+                "language": lang.language,
+                "proficiency": lang.proficiency,
+                "can_read": lang.can_read,
+                "can_write": lang.can_write,
+                "can_speak": lang.can_speak,
+            })
+
+        return data
+
+
+class CandidateHeaderAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            candidate = Candidate.objects.select_related("user").get(
+                user=request.user
+            )
+
+            return api_response(
+                True,
+                "Header profile fetched successfully.",
+                data={
+                    "id": candidate.id,
+                    "full_name": f"{candidate.first_name} {candidate.last_name}".strip(),
+                    "first_name": candidate.first_name,
+                    "last_name": candidate.last_name,
+                    "email": candidate.user.email,
+                    "role": candidate.user.role,
+                    "profile_image": (
+                        candidate.profile_image.url
+                        if candidate.profile_image
+                        else None
+                    ),
+                },
+            )
+
+        except Candidate.DoesNotExist:
+            return api_response(
+                False,
+                "Candidate profile not found.",
+                http_status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+class LogoutAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        refresh_token = request.data.get("refresh")
+
+        if not refresh_token:
+            return api_response(
+                False,
+                "Refresh token is required.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+
+            return api_response(
+                True,
+                "Logged out successfully.",
+            )
+
+        except Exception:
+            return api_response(
+                False,
+                "Invalid or expired refresh token.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+
