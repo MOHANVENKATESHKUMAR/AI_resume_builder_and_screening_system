@@ -10,7 +10,8 @@ env/
 
 # Environment Variables
 .env
-
+__pycache__/
+*.py[cod]
 # # Django
 # db.sqlite3
 # *.sqlite3
