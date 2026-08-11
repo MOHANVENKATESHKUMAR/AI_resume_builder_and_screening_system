@@ -426,7 +426,7 @@ class CandidateExperience(models.Model):
         on_delete=models.CASCADE,
         related_name="experiences",
     )
-
+#.msfc
     resume_version = models.ForeignKey(
         ResumeParsedData,
         on_delete=models.CASCADE,
