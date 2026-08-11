@@ -1,7 +1,7 @@
 from django.urls import path
 
 from ai_resume_building.views import( 
-CandidateHeaderAPIView, CandidateProfileAPIView, CandidateRegistrationView, ForgotPasswordAPIView, LoginAPIView, LogoutAPIView, RecruiterRegistrationView, ResetPasswordAPIView,  
+CandidateHeaderAPIView, RecruiterHeaderAPIView, CandidateProfileAPIView, CandidateRegistrationView, ForgotPasswordAPIView, LoginAPIView, LogoutAPIView, RecruiterRegistrationView, ResetPasswordAPIView,  
 SendSignupOTPAPIView, VerifyLoginOTPAPIView, VerifySignupOTPAPIView)
 
 urlpatterns = [
@@ -26,6 +26,8 @@ urlpatterns = [
 
      #for  candidate header token authentication
      path("candidate/header/",CandidateHeaderAPIView.as_view(),name="candidate-header",),
+     #for recruiter header token authentication
+     path("recruiter/header/",RecruiterHeaderAPIView.as_view(),name="recruiter-header",),
     
 
     #for candidate profile page

@@ -21,7 +21,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from ai_resume_building.utils import FRONTEND_RESET_PASSWORD_URL, api_response, generate_otp, get_client_ip, get_valid_otp, issue_otp, send_otp_email, send_reset_password_email
 
-from .models import OTP, Candidate, OTPPurpose, PasswordResetToken
+from .models import OTP, Candidate, OTPPurpose, PasswordResetToken, Recruiter
 from .serializers import (
     CandidateRegistrationSerializer,
     RecruiterRegistrationSerializer,
@@ -824,6 +824,40 @@ class CandidateHeaderAPIView(APIView):
             return api_response(
                 False,
                 "Candidate profile not found.",
+                http_status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+class RecruiterHeaderAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            recruiter = Recruiter.objects.select_related("user").get(
+                user=request.user
+            )
+
+            return api_response(
+                True,
+                "Recruiter header profile fetched successfully.",
+                data={
+                    "id": recruiter.id,
+                    "full_name": recruiter.user.username,
+                    "email": recruiter.user.email,
+                    "role": recruiter.user.role,
+                    "company_name": recruiter.company_name if hasattr(recruiter, "company_name") else None,
+                    "profile_image": (
+                        recruiter.profile_image.url
+                        if recruiter.profile_image
+                        else None
+                    ),
+                },
+            )
+
+        except Recruiter.DoesNotExist:
+            return api_response(
+                False,
+                "Recruiter profile not found.",
                 http_status=status.HTTP_404_NOT_FOUND,
             )
 
