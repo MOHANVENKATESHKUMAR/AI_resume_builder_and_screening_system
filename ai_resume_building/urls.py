@@ -28,11 +28,6 @@ urlpatterns = [
      path("candidate/header/",CandidateHeaderAPIView.as_view(),name="candidate-header",),
     
 
-    #for candidate profile page
-
-
-    #to get
-     path("profile/",CandidateProfileAPIView.as_view(),name="candidate-profile",),
 
   
 

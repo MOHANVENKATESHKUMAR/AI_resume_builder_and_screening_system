@@ -124,7 +124,8 @@ class Recruiter(models.Model):
         related_name="recruiter",
     )
 
-    full_name = models.CharField(max_length=150)
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100, blank=True)
 
     recruiter_name = models.CharField(
         max_length=150,
