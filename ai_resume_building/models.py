@@ -146,6 +146,11 @@ class Recruiter(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    profile_image = models.ImageField(
+            upload_to="recruiter/profile/",
+            blank=True,
+            null=True,
+        )
     class Meta:
         db_table = "recruiter"
 
