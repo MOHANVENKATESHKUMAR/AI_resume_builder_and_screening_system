@@ -50,17 +50,14 @@ class CandidateRegistrationSerializer(serializers.Serializer):
 
     password = serializers.CharField(
         write_only=True,
+        style={"input_type": "password"},
         min_length=8
     )
 
     confirm_password = serializers.CharField(
-        write_only=True
+        write_only=True,
+        style={"input_type": "password"}
     )
-
-    def create():
-        print(User)
-        print(User.objects.__class__)
-    print(User.USERNAME_FIELD)
 
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
