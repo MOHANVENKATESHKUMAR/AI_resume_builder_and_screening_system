@@ -2,7 +2,7 @@ from django.urls import path
 
 from ai_resume_building.views import( 
 CandidateHeaderAPIView, RecruiterHeaderAPIView, CandidateProfileAPIView, CandidateRegistrationView, ForgotPasswordAPIView, LoginAPIView, LogoutAPIView, RecruiterRegistrationView, ResetPasswordAPIView,  
-SendSignupOTPAPIView, VerifyLoginOTPAPIView, VerifySignupOTPAPIView)
+SendSignupOTPAPIView, VerifyForgotPasswordOTPAPIView, VerifyLoginOTPAPIView, VerifySignupOTPAPIView)
 
 urlpatterns = [
      #candidate regristration with email verification
@@ -20,9 +20,25 @@ urlpatterns = [
     #signup EMAIL otp verification
     path("signup/verify-otp/", VerifySignupOTPAPIView.as_view(), name="signup-verify-otp"),
     #FOR FORGOT PASSWORD
-    path("forgot-password/",ForgotPasswordAPIView.as_view(),name="forgot-password",),
-    #RESET PASSWORD WITH TOKEN NEED TO VERIFY
-    path("reset-password/",ResetPasswordAPIView.as_view(),name="reset-password",),
+    path(
+        "forgot-password/",
+        ForgotPasswordAPIView.as_view(),
+        name="forgot-password",
+    ),
+
+    # Verify password reset OTP
+    path(
+        "verify-forgot-password-otp/",
+        VerifyForgotPasswordOTPAPIView.as_view(),
+        name="verify-forgot-password-otp",
+    ),
+
+    # Reset password after OTP verification
+    path(
+        "reset-password/",
+        ResetPasswordAPIView.as_view(),
+        name="reset-password",
+    ),
 
      #for  candidate header token authentication
      path("candidate/header/",CandidateHeaderAPIView.as_view(),name="candidate-header",),

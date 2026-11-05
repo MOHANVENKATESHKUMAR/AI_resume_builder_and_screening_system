@@ -12,11 +12,6 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
-
-
-
-
-
 class UserRole(models.TextChoices):
     ADMIN = "ADMIN", "Admin"
     CANDIDATE = "CANDIDATE", "Candidate"
@@ -156,7 +151,10 @@ class Recruiter(models.Model):
 
     def __str__(self):
         return self.company_name
-    
+
+
+
+
 class OTPPurpose(models.TextChoices):
     SIGNUP = "SIGNUP", "Signup"
     LOGIN = "LOGIN", "Login"
@@ -164,50 +162,58 @@ class OTPPurpose(models.TextChoices):
 
 
 class OTP(models.Model):
-    email = models.EmailField()
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="otps",
+        null=True,
+        blank=True,
+    )
+
+    email = models.EmailField(
+        blank=True,
+        null=True,
+    )
+
+    phone_number = models.CharField(
+        max_length=15,
+        blank=True,
+        null=True,
+    )
+
     otp = models.CharField(max_length=6)
-    purpose = models.CharField(max_length=20, choices=OTPPurpose.choices)
+
+    purpose = models.CharField(
+        max_length=20,
+        choices=OTPPurpose.choices,
+    )
+
     expires_at = models.DateTimeField()
+
     is_verified = models.BooleanField(default=False)
+
+    is_used = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "otp"
+
+        ordering = ["-created_at"]
+
         indexes = [
             models.Index(fields=["email", "purpose"]),
+            models.Index(fields=["phone_number", "purpose"]),
         ]
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"{self.email} - {self.purpose}"
 
     def is_valid(self):
-        return not self.is_verified and self.expires_at > timezone.now()
 
-
-class PasswordResetToken(models.Model):
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="password_reset_tokens",
-    )
-    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
-    is_used = models.BooleanField(default=False)
-
-    class Meta:
-        db_table = "password_reset_token"
-        ordering = ["-created_at"]
-
-    def save(self, *args, **kwargs):
-        if not self.expires_at:
-            self.expires_at = timezone.now() + timedelta(minutes=15)
-        super().save(*args, **kwargs)
-
-    def is_valid(self):
-        return not self.is_used and self.expires_at > timezone.now()
-
+        return (
+            not self.is_verified
+            and not self.is_used
+            and self.expires_at > timezone.now()
+        )
 
 # while registering and parsing the resume we will store the parsed data in this model and also keep the history of all the parsed data for a candidate
 class ResumeParsedData(models.Model):

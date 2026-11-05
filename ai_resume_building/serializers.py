@@ -1,10 +1,10 @@
 import re
-
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from rest_framework import serializers
-
+from rest_framework.exceptions import ValidationError
 from ai_resume_building.models import User, UserRole , Candidate , Recruiter
+from django.contrib.auth.password_validation import validate_password
 
 
 
@@ -358,29 +358,93 @@ class VerifyOTPSerializer(serializers.Serializer):
         return value
 
 
-class ForgotPasswordSerializer(serializers.Serializer):
-    role = serializers.ChoiceField(choices=UserRole.choices)
-    email = serializers.EmailField()
 
-    def validate_email(self, value):
-        return value.strip().lower()
+class ForgotPasswordSerializer(serializers.Serializer):
+
+    method = serializers.ChoiceField(
+        choices=["email", "sms"]
+    )
+
+    value = serializers.CharField()
+
+
+class VerifyForgotPasswordOTPSerializer(serializers.Serializer):
+
+    method = serializers.ChoiceField(
+        choices=["email", "sms"]
+    )
+
+    value = serializers.CharField()
+
+    otp = serializers.CharField(
+        min_length=6,
+        max_length=6
+    )
 
 
 class ResetPasswordSerializer(serializers.Serializer):
 
-    token = serializers.UUIDField()
-    password = serializers.CharField(write_only=True, style={"input_type": "password"})
-    confirm_password = serializers.CharField(write_only=True, style={"input_type": "password"})
+    method = serializers.ChoiceField(
+        choices=["email", "sms"]
+    )
+
+    value = serializers.CharField()
+
+    otp = serializers.CharField(
+        min_length=6,
+        max_length=6
+    )
+
+    password = serializers.CharField(
+        write_only=True
+    )
+
+    confirm_password = serializers.CharField(
+        write_only=True
+    )
 
     def validate_password(self, value):
-        return validate_password_strength(value)
+
+        if len(value) < 8:
+            raise ValidationError(
+                "Password must be at least 8 characters long."
+            )
+
+        if not re.search(r"[A-Z]", value):
+            raise ValidationError(
+                "Password must contain an uppercase letter."
+            )
+
+        if not re.search(r"[a-z]", value):
+            raise ValidationError(
+                "Password must contain a lowercase letter."
+            )
+
+        if not re.search(r"\d", value):
+            raise ValidationError(
+                "Password must contain a number."
+            )
+
+        if not re.search(r"[@$!%*?&]", value):
+            raise ValidationError(
+                "Password must contain a special character."
+            )
+
+        validate_password(value)
+
+        return value
 
     def validate(self, attrs):
+
         if attrs["password"] != attrs["confirm_password"]:
-            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+            raise ValidationError({
+                "confirm_password": "Passwords do not match."
+            })
+
         return attrs
 
 
+    
 # class GoogleLoginSerializer(serializers.Serializer):
 #     id_token = serializers.CharField(required=True)
 

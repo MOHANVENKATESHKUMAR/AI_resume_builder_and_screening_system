@@ -18,10 +18,14 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from ai_resume_building.utils import (
+    api_response,
+    issue_otp,
+    send_otp_email,
+    get_valid_otp,
+)
 
-from ai_resume_building.utils import FRONTEND_RESET_PASSWORD_URL, api_response, generate_otp, get_client_ip, get_valid_otp, issue_otp, send_otp_email, send_reset_password_email
-
-from .models import OTP, Candidate, OTPPurpose, PasswordResetToken, Recruiter
+from .models import OTP, Candidate, OTPPurpose,  Recruiter
 from .serializers import (
     CandidateRegistrationSerializer,
     RecruiterRegistrationSerializer,
@@ -30,6 +34,7 @@ from .serializers import (
     ResetPasswordSerializer,
    
     SendOTPSerializer,
+    VerifyForgotPasswordOTPSerializer,
     VerifyOTPSerializer,
     UserRole
 )
@@ -312,6 +317,8 @@ class LoginAPIView(APIView):
             "OTP sent successfully.",
             email=user.email,
         )
+
+    
 class VerifyLoginOTPAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -368,78 +375,257 @@ class VerifyLoginOTPAPIView(APIView):
 
 
 
-# Forgot / reset passwords
+# ============================================================
+# HELPER: FIND USER USING EMAIL OR PHONE
+# ============================================================
+
+def get_user_by_method(method, value):
+
+    if method == "email":
+
+        return User.objects.filter(
+            email__iexact=value
+        ).first()
+
+    elif method == "sms":
+
+        return User.objects.filter(
+            phone_number=value
+        ).first()
+
+    return None
+
+
+# ============================================================
+# FORGOT PASSWORD - SEND OTP
+# ============================================================
 
 class ForgotPasswordAPIView(APIView):
+
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = ForgotPasswordSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
-        role = serializer.validated_data["role"]
+        serializer = ForgotPasswordSerializer(
+            data=request.data
+        )
 
-        user = User.objects.filter(
-            email__iexact=email,
-            role=role,
-        ).first()
+        serializer.is_valid(
+            raise_exception=True
+        )
 
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
+
+        user = get_user_by_method(
+            method,
+            value
+        )
+
+        # Avoid revealing whether the account exists.
         if user:
-            reset = PasswordResetToken.objects.create(user=user)
-            reset_link = f"{FRONTEND_RESET_PASSWORD_URL}?token={reset.token}"
-            send_reset_password_email(user, reset_link)
+
+            try:
+
+                otp_value = issue_otp(
+                    method=method,
+                    value=value,
+                    purpose=OTPPurpose.FORGOT_PASSWORD
+                )
+
+                if method == "email":
+
+                    email_sent = send_otp_email(
+                        email=value,
+                        otp=otp_value,
+                        subject="Password Reset OTP"
+                    )
+
+                    if not email_sent:
+
+                        return api_response(
+                            False,
+                            "Unable to send OTP. Please try again.",
+                            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                        )
+
+                elif method == "sms":
+
+                    # SMS provider integration required here.
+                    # Example: Twilio SMS sending function.
+                    return api_response(
+                        False,
+                        "SMS service is not configured yet.",
+                        http_status=status.HTTP_501_NOT_IMPLEMENTED
+                    )
+
+            except Exception:
+
+                logger.exception(
+                    "Forgot password OTP generation failed"
+                )
+
+                return api_response(
+                    False,
+                    "Unable to process your request.",
+                    http_status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
         return api_response(
             True,
-            "If an account exists for this email, a password reset link has been sent.",
+            "If the account exists, an OTP has been sent."
         )
 
 
-class ResetPasswordAPIView(APIView):
+class VerifyForgotPasswordOTPAPIView(APIView):
+
     permission_classes = [AllowAny]
 
     def post(self, request):
+
+        serializer = VerifyForgotPasswordOTPSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
+        otp_value = serializer.validated_data["otp"]
+
+        user = get_user_by_method(
+            method,
+            value
+        )
+
+        if not user:
+
+            return api_response(
+                False,
+                "Invalid OTP.",
+                http_status=status.HTTP_400_BAD_REQUEST
+            )
+
+        otp_obj, error = get_valid_otp(
+            method=method,
+            value=value,
+            purpose=OTPPurpose.FORGOT_PASSWORD,
+            otp_value=otp_value
+        )
+
+        if error:
+
+            return api_response(
+                False,
+                error,
+                http_status=status.HTTP_400_BAD_REQUEST
+            )
+
+        otp_obj.is_verified = True
+
+        otp_obj.save(
+            update_fields=["is_verified"]
+        )
+
+        return api_response(
+            True,
+            "OTP verified successfully."
+        )
+
+
+# RESET PASSWORD
+
+class ResetPasswordAPIView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+
         serializer = ResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        token = serializer.validated_data["token"]
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
+        otp_value = serializer.validated_data["otp"]
         password = serializer.validated_data["password"]
 
-        reset = PasswordResetToken.objects.filter(token=token, is_used=False).first()
+      
 
-        if reset is None:
+        user = get_user_by_method(method, value)
+
+        if not user:
             return api_response(
                 False,
-                "Invalid reset link.",
-                http_status=status.HTTP_400_BAD_REQUEST,
+                "Invalid password reset request.",
+                http_status=status.HTTP_400_BAD_REQUEST
             )
 
-        if reset.expires_at < timezone.now():
-            return api_response(
-                False,
-                "Reset link has expired.",
-                http_status=status.HTTP_400_BAD_REQUEST,
-            )
-
+     
         with transaction.atomic():
-            user = reset.user
+
+            # Base OTP query
+            otp_queryset = OTP.objects.select_for_update().filter(
+                purpose=OTPPurpose.FORGOT_PASSWORD,
+                is_verified=True,
+                is_used=False,
+                otp=otp_value,
+            )
+
+            # Match OTP by email or phone number
+            if method == "email":
+
+                otp_queryset = otp_queryset.filter(
+                    email__iexact=value
+                )
+
+            elif method == "sms":
+
+                otp_queryset = otp_queryset.filter(
+                    phone_number=value
+                )
+
+            else:
+
+                return api_response(
+                    False,
+                    "Invalid verification method.",
+                    http_status=status.HTTP_400_BAD_REQUEST
+                )
+
+            otp_obj = otp_queryset.order_by("-created_at").first()
+
+         
+
+            if otp_obj is None:
+
+                return api_response(
+                    False,
+                    "Invalid OTP or OTP not verified.",
+                    http_status=status.HTTP_400_BAD_REQUEST
+                )
+
+          
+
             user.set_password(password)
+
             user.save(update_fields=["password"])
 
-            reset.is_used = True
-            reset.save(update_fields=["is_used"])
+            
 
-           
-            PasswordResetToken.objects.filter(
-                user=user, is_used=False
-            ).exclude(pk=reset.pk).update(is_used=True)
+            otp_obj.delete()
 
-        return api_response(True, "Password updated successfully.")
+        
+
+        return api_response(
+            True,
+            "Password reset successfully."
+        )
 
 
 
-
+    
 # class GoogleLoginAPIView(generics.GenericAPIView):
 #     serializer_class = GoogleLoginSerializer
 #     permission_classes=[AllowAny]
@@ -844,7 +1030,7 @@ class RecruiterHeaderAPIView(APIView):
                     "id": recruiter.id,
                     "full_name": recruiter.user.username,
                     "email": recruiter.user.email,
-                    "role": recruiter.user.role,
+                    "role": "Recruiter",
                     "company_name": recruiter.company_name if hasattr(recruiter, "company_name") else None,
                     "profile_image": (
                         recruiter.profile_image.url
