@@ -59,6 +59,44 @@ class CandidateRegistrationSerializer(serializers.Serializer):
         style={"input_type": "password"}
     )
 
+    role = serializers.HiddenField(default=UserRole.CANDIDATE)
+
+    class Meta:
+        model = User
+        fields = [
+            "full_name", 
+            "username",
+            "email",
+            "phone_number",
+            "degree",
+            "resume",
+            "password",
+            "confirm_password",
+            "role",
+        ]
+
+    def validate_full_name(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError("Full name is required.")
+
+        if len(value) < 2:
+            raise serializers.ValidationError("Enter a valid full name.")
+
+        return value
+
+    def validate_username(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError("Username is required.")
+
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("Username already exists.")
+
+        return value
+
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
             raise serializers.ValidationError(
@@ -209,7 +247,9 @@ class RecruiterRegistrationSerializer(serializers.ModelSerializer):
         company_website = validated_data.pop("company_website", "")
         company_location = validated_data.pop("company_location")
         industry_type = validated_data.pop("industry_type")
-
+        name_parts = full_name.split(maxsplit=1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
         validated_data.pop("confirm_password")
         password = validated_data.pop("password")
 
@@ -225,7 +265,8 @@ class RecruiterRegistrationSerializer(serializers.ModelSerializer):
 
         Recruiter.objects.create(
             user=user,
-            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
             recruiter_name=recruiter_name,
             designation=designation,
             company_name=company_name,
@@ -306,5 +347,7 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 # class LinkedInLoginSerializer(serializers.Serializer):
 #     code = serializers.CharField()
+
+
 
 

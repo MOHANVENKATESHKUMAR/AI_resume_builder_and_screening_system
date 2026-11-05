@@ -132,7 +132,8 @@ class Recruiter(models.Model):
         related_name="recruiter",
     )
 
-    full_name = models.CharField(max_length=150)
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100, blank=True)
 
     recruiter_name = models.CharField(
         max_length=150,
@@ -438,7 +439,7 @@ class CandidateExperience(models.Model):
         on_delete=models.CASCADE,
         related_name="experiences",
     )
-
+#.msfc
     resume_version = models.ForeignKey(
         ResumeParsedData,
         on_delete=models.CASCADE,
