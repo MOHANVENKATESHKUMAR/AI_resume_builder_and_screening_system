@@ -18,10 +18,14 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from ai_resume_building.utils import (
+    api_response,
+    issue_otp,
+    send_otp_email,
+    get_valid_otp,
+)
 
-from ai_resume_building.utils import FRONTEND_RESET_PASSWORD_URL, api_response, generate_otp, get_client_ip, get_valid_otp, issue_otp, send_otp_email, send_reset_password_email
-
-from .models import OTP, Candidate, OTPPurpose, PasswordResetToken, Recruiter
+from .models import OTP, Candidate, OTPPurpose,  Recruiter
 from .serializers import (
     CandidateRegistrationSerializer,
     RecruiterRegistrationSerializer,
@@ -30,6 +34,7 @@ from .serializers import (
     ResetPasswordSerializer,
    
     SendOTPSerializer,
+    VerifyForgotPasswordOTPSerializer,
     VerifyOTPSerializer,
     UserRole
 )
@@ -253,6 +258,8 @@ class LoginAPIView(APIView):
             "OTP sent successfully.",
             email=user.email,
         )
+
+    
 class VerifyLoginOTPAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -309,78 +316,256 @@ class VerifyLoginOTPAPIView(APIView):
 
 
 
-# Forgot / reset passwords
+# ============================================================
+# HELPER: FIND USER USING EMAIL OR PHONE
+# ============================================================
+
+def get_user_by_method(method, value):
+
+    if method == "email":
+
+        return User.objects.filter(
+            email__iexact=value
+        ).first()
+
+    elif method == "sms":
+
+        return User.objects.filter(
+            phone_number=value
+        ).first()
+
+    return None
+
+
+# FORGOT PASSWORD - SEND OTP
+
 
 class ForgotPasswordAPIView(APIView):
+
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = ForgotPasswordSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
-        role = serializer.validated_data["role"]
+        serializer = ForgotPasswordSerializer(
+            data=request.data
+        )
 
-        user = User.objects.filter(
-            email__iexact=email,
-            role=role,
-        ).first()
+        serializer.is_valid(
+            raise_exception=True
+        )
 
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
+
+        user = get_user_by_method(
+            method,
+            value
+        )
+
+        # Avoid revealing whether the account exists.
         if user:
-            reset = PasswordResetToken.objects.create(user=user)
-            reset_link = f"{FRONTEND_RESET_PASSWORD_URL}?token={reset.token}"
-            send_reset_password_email(user, reset_link)
+
+            try:
+
+                otp_value = issue_otp(
+                    method=method,
+                    value=value,
+                    purpose=OTPPurpose.FORGOT_PASSWORD
+                )
+
+                if method == "email":
+
+                    email_sent = send_otp_email(
+                        email=value,
+                        otp=otp_value,
+                        subject="Password Reset OTP"
+                    )
+
+                    if not email_sent:
+
+                        return api_response(
+                            False,
+                            "Unable to send OTP. Please try again.",
+                            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                        )
+
+                elif method == "sms":
+
+                    # SMS provider integration required here.
+                    # Example: Twilio SMS sending function.
+                    return api_response(
+                        False,
+                        "SMS service is not configured yet.",
+                        http_status=status.HTTP_501_NOT_IMPLEMENTED
+                    )
+
+            except Exception:
+
+                logger.exception(
+                    "Forgot password OTP generation failed"
+                )
+
+                return api_response(
+                    False,
+                    "Unable to process your request.",
+                    http_status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
         return api_response(
             True,
-            "If an account exists for this email, a password reset link has been sent.",
+            "If the account exists, an OTP has been sent."
         )
 
 
-class ResetPasswordAPIView(APIView):
+class VerifyForgotPasswordOTPAPIView(APIView):
+
     permission_classes = [AllowAny]
 
     def post(self, request):
+
+        serializer = VerifyForgotPasswordOTPSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
+        otp_value = serializer.validated_data["otp"]
+
+        user = get_user_by_method(
+            method,
+            value
+        )
+
+        if not user:
+
+            return api_response(
+                False,
+                "Invalid OTP.",
+                http_status=status.HTTP_400_BAD_REQUEST
+            )
+
+        otp_obj, error = get_valid_otp(
+            method=method,
+            value=value,
+            purpose=OTPPurpose.FORGOT_PASSWORD,
+            otp_value=otp_value
+        )
+
+        if error:
+
+            return api_response(
+                False,
+                error,
+                http_status=status.HTTP_400_BAD_REQUEST
+            )
+
+        otp_obj.is_verified = True
+
+        otp_obj.save(
+            update_fields=["is_verified"]
+        )
+
+        return api_response(
+            True,
+            "OTP verified successfully."
+        )
+
+
+# RESET PASSWORD
+
+class ResetPasswordAPIView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+
         serializer = ResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        token = serializer.validated_data["token"]
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
+        otp_value = serializer.validated_data["otp"]
         password = serializer.validated_data["password"]
 
-        reset = PasswordResetToken.objects.filter(token=token, is_used=False).first()
+      
 
-        if reset is None:
+        user = get_user_by_method(method, value)
+
+        if not user:
             return api_response(
                 False,
-                "Invalid reset link.",
-                http_status=status.HTTP_400_BAD_REQUEST,
+                "Invalid password reset request.",
+                http_status=status.HTTP_400_BAD_REQUEST
             )
 
-        if reset.expires_at < timezone.now():
-            return api_response(
-                False,
-                "Reset link has expired.",
-                http_status=status.HTTP_400_BAD_REQUEST,
-            )
-
+     
         with transaction.atomic():
-            user = reset.user
+
+            # Base OTP query
+            otp_queryset = OTP.objects.select_for_update().filter(
+                purpose=OTPPurpose.FORGOT_PASSWORD,
+                is_verified=True,
+                is_used=False,
+                otp=otp_value,
+            )
+
+            # Match OTP by email or phone number
+            if method == "email":
+
+                otp_queryset = otp_queryset.filter(
+                    email__iexact=value
+                )
+
+            elif method == "sms":
+
+                otp_queryset = otp_queryset.filter(
+                    phone_number=value
+                )
+
+            else:
+
+                return api_response(
+                    False,
+                    "Invalid verification method.",
+                    http_status=status.HTTP_400_BAD_REQUEST
+                )
+
+            otp_obj = otp_queryset.order_by("-created_at").first()
+
+         
+
+            if otp_obj is None:
+
+                return api_response(
+                    False,
+                    "Invalid OTP or OTP not verified.",
+                    http_status=status.HTTP_400_BAD_REQUEST
+                )
+
+          
+
             user.set_password(password)
+
             user.save(update_fields=["password"])
 
-            reset.is_used = True
-            reset.save(update_fields=["is_used"])
+            
 
-           
-            PasswordResetToken.objects.filter(
-                user=user, is_used=False
-            ).exclude(pk=reset.pk).update(is_used=True)
+            otp_obj.delete()
 
-        return api_response(True, "Password updated successfully.")
+        
+
+        return api_response(
+            True,
+            "Password reset successfully."
+        )
 
 
 
-
+    
 # class GoogleLoginAPIView(generics.GenericAPIView):
 #     serializer_class = GoogleLoginSerializer
 #     permission_classes=[AllowAny]
@@ -499,308 +684,6 @@ class ResetPasswordAPIView(APIView):
 #             }
 #         )
 
-
-
-#for candidate profile page 
-class CandidateProfileAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-
-        candidate = (
-            Candidate.objects.select_related(
-                "user",
-                "active_resume",
-            )
-            .prefetch_related(
-                "skills",
-                "educations",
-                "experiences",
-                "certifications",
-                "languages",
-            )
-            .get(user=request.user)
-        )
-
-        return Response({
-            "profile": self._get_profile(candidate),
-            "profile_strength": self._calculate_profile_strength(candidate),
-            "professional_highlights": self._get_professional_highlights(candidate),
-            "profile_highlights": self._get_profile_highlights(candidate),
-            "skill_competency": self._get_skill_competency(candidate),
-            "experience": self._get_experience(candidate),
-            "education": self._get_education(candidate),
-            "certifications": self._get_certifications(candidate),
-            "languages": self._get_languages(candidate),
-        })
-
-
-    def _get_profile(self, candidate):
-        return {
-            "id": candidate.id,
-            "profile_image": candidate.profile_image.url if candidate.profile_image else None,
-            "first_name": candidate.first_name,
-            "last_name": candidate.last_name,
-            "full_name": f"{candidate.first_name} {candidate.last_name}".strip(),
-            "headline": candidate.headline,
-            "about_me": candidate.about_me,
-            "email": candidate.user.email,
-            "phone": candidate.user.phone_number,
-            "location": candidate.location,
-            "linkedin": candidate.linkedin_url,
-        }
-
-
-    def _calculate_profile_strength(self, candidate):
-
-        score = 0
-
-        if candidate.profile_image:
-            score += 10
-
-        if candidate.first_name:
-            score += 10
-
-        if candidate.headline:
-            score += 10
-
-        if candidate.about_me:
-            score += 10
-
-        if candidate.location:
-            score += 10
-
-        if candidate.linkedin_url:
-            score += 10
-
-        if candidate.skills.exists():
-            score += 15
-
-        if candidate.educations.exists():
-            score += 10
-
-        if candidate.experiences.exists():
-            score += 10
-
-        if candidate.languages.exists():
-            score += 5
-
-        if score >= 90:
-            status = "Excellent"
-        elif score >= 70:
-            status = "Good"
-        elif score >= 50:
-            status = "Average"
-        else:
-            status = "Beginner"
-
-        return {
-            "percentage": score,
-            "status": status,
-        }
-
- 
-
-    def _get_professional_highlights(self, candidate):
-        return {
-            "experience_years": candidate.total_experience,
-            "highest_degree": candidate.highest_qualification,
-            "total_certifications": candidate.certifications.count(),
-            "total_skills": candidate.skills.count(),
-        }
-
-  
-
-    def _get_profile_highlights(self, candidate):
-
-        return [
-            {
-                "title": "Personal Information",
-                "completed": bool(
-                    candidate.first_name
-                    and candidate.location
-                    and candidate.user.email
-                ),
-            },
-            {
-                "title": "Experience",
-                "completed": candidate.experiences.exists(),
-            },
-            {
-                "title": "Skills",
-                "completed": candidate.skills.exists(),
-            },
-            {
-                "title": "Education",
-                "completed": candidate.educations.exists(),
-            },
-            {
-                "title": "Languages",
-                "completed": candidate.languages.exists(),
-            },
-        ]
-
-
-
-    def _get_skill_competency(self, candidate):
-
-        data = []
-
-        for skill in candidate.skills.all():
-
-            rating = skill.proficiency or 10
-
-            data.append({
-                "id": skill.id,
-                "skill": skill.skill_name,
-                "rating": rating,
-                "percentage": rating * 10,
-            })
-
-        return data
-
-
-    def _get_experience(self, candidate):
-
-        data = []
-
-        for exp in candidate.experiences.all():
-            data.append({
-                "id": exp.id,
-                "company": exp.company_name,
-                "designation": exp.designation,
-                "employment_type": exp.employment_type,
-                "location": exp.location,
-                "start_date": exp.start_date,
-                "end_date": exp.end_date,
-                "currently_working": exp.currently_working,
-                "description": exp.description,
-            })
-
-        return data
-
-
-
-    def _get_education(self, candidate):
-
-        data = []
-
-        for edu in candidate.educations.all():
-            data.append({
-                "id": edu.id,
-                "degree": edu.degree,
-                "institution": edu.institution,
-                "specialization": edu.specialization,
-                "cgpa": edu.cgpa,
-                "percentage": edu.percentage,
-                "start_year": edu.start_year,
-                "end_year": edu.end_year,
-            })
-
-        return data
-
-   
-    def _get_certifications(self, candidate):
-
-        data = []
-
-        for cert in candidate.certifications.all():
-            data.append({
-                "id": cert.id,
-                "certificate_name": cert.certificate_name,
-                "issuing_organization": cert.issuing_organization,
-                "issue_date": cert.issue_date,
-                "expiry_date": cert.expiry_date,
-                "credential_url": cert.credential_url,
-            })
-
-        return data
-
-
-    def _get_languages(self, candidate):
-
-        data = []
-
-        for lang in candidate.languages.all():
-            data.append({
-                "id": lang.id,
-                "language": lang.language,
-                "proficiency": lang.proficiency,
-                "can_read": lang.can_read,
-                "can_write": lang.can_write,
-                "can_speak": lang.can_speak,
-            })
-
-        return data
-
-
-class CandidateHeaderAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        try:
-            candidate = Candidate.objects.select_related("user").get(
-                user=request.user
-            )
-
-            return api_response(
-                True,
-                "Header profile fetched successfully.",
-                data={
-                    "id": candidate.id,
-                    "full_name": f"{candidate.first_name} {candidate.last_name}".strip(),
-                    "first_name": candidate.first_name,
-                    "last_name": candidate.last_name,
-                    "email": candidate.user.email,
-                    "role": candidate.user.role,
-                    "profile_image": (
-                        candidate.profile_image.url
-                        if candidate.profile_image
-                        else None
-                    ),
-                },
-            )
-
-        except Candidate.DoesNotExist:
-            return api_response(
-                False,
-                "Candidate profile not found.",
-                http_status=status.HTTP_404_NOT_FOUND,
-            )
-
-
-class RecruiterHeaderAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        try:
-            recruiter = Recruiter.objects.select_related("user").get(
-                user=request.user
-            )
-
-            return api_response(
-                True,
-                "Recruiter header profile fetched successfully.",
-                data={
-                    "id": recruiter.id,
-                    "full_name": recruiter.user.username,
-                    "email": recruiter.user.email,
-                    "role": recruiter.user.role,
-                    "company_name": recruiter.company_name if hasattr(recruiter, "company_name") else None,
-                    "profile_image": (
-                        recruiter.profile_image.url
-                        if recruiter.profile_image
-                        else None
-                    ),
-                },
-            )
-
-        except Recruiter.DoesNotExist:
-            return api_response(
-                False,
-                "Recruiter profile not found.",
-                http_status=status.HTTP_404_NOT_FOUND,
-            )
 
 
 class LogoutAPIView(APIView):

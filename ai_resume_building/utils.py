@@ -1,151 +1,206 @@
-from asyncio.log import logger
-import random
-import string
+
+import logging
 import secrets
+
 from datetime import timedelta
-from django.template.loader import render_to_string
+
 from django.conf import settings
-
-from django.core.mail import EmailMultiAlternatives, send_mail
-from django.db import IntegrityError, transaction
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
 from django.utils import timezone
+from django.db import transaction
 
-from rest_framework import status
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework import status
 
-from .models import OTPPurpose, OTP, PasswordResetToken
-
+from .models import OTPPurpose, OTP
 
 
-#for login success page 
-def get_client_ip(request):
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
-    else:
-        ip = request.META.get("REMOTE_ADDR")
-
-    return ip
-
-
-#for generate otp
-
-def generate_otp():
-    return f"{random.randint(100000, 999999)}"
+logger = logging.getLogger(__name__)
 
 OTP_VALIDITY_MINUTES = 5
-FRONTEND_RESET_PASSWORD_URL = getattr(
-    settings,
-    "FRONTEND_RESET_PASSWORD_URL",
-    "http://localhost:5173/Resume-builder/login/createpassword",
-)
 
 
+# ============================================================
+# GENERATE OTP
+# ============================================================
+
+def generate_otp():
+    return str(secrets.randbelow(900000) + 100000)
 
 
-def api_response(success, message=None, http_status=status.HTTP_200_OK, **fields):
-   
-    body = {"success": success}
+# ============================================================
+# API RESPONSE
+# ============================================================
+
+def api_response(
+    success,
+    message=None,
+    http_status=status.HTTP_200_OK,
+    **fields
+):
+    body = {
+        "success": success
+    }
+
     if message is not None:
         body["message"] = message
+
     body.update(fields)
+
     return Response(body, status=http_status)
 
 
-# def send_otp_email(email, otp, subject):
-    
-#     try:
-#         send_mail(
-#             subject=subject,
-#             message=f"Your OTP is {otp}. It is valid for {OTP_VALIDITY_MINUTES} minutes.",
-#             from_email=settings.DEFAULT_FROM_EMAIL,
-#             recipient_list=[email],
-#             fail_silently=False,
-#         )
-#     except Exception:
-#         logger.exception("Failed to send OTP email to %s", email)
-def send_otp_email(email, otp,subject):
+# ============================================================
+# SEND OTP EMAIL
+# ============================================================
 
-    html = render_to_string(
-        "emails/signup_otp.html",
-        {
+def send_otp_email(email, otp, subject):
+
+    try:
+
+        context = {
             "otp": otp,
-            "minutes": 5,
-        },
-    )
+            "minutes": OTP_VALIDITY_MINUTES,
+        }
 
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=f"Your OTP is {otp}",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email],
-    )
+        html_content = render_to_string(
+            "emails/signup_otp.html",
+            context
+        )
 
-    msg.attach_alternative(html, "text/html")
+        message = EmailMultiAlternatives(
+            subject=subject,
+            body=(
+                f"Your OTP is {otp}. "
+                f"It is valid for {OTP_VALIDITY_MINUTES} minutes."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[email],
+        )
 
-    msg.send()
+        message.attach_alternative(
+            html_content,
+            "text/html"
+        )
+
+        message.send(fail_silently=False)
+
+        return True
+
+    except Exception:
+
+        logger.exception("Failed to send OTP email")
+
+        return False
 
 
+# ============================================================
+# BUILD OTP LOOKUP
+# ============================================================
 
+def get_otp_lookup(method, value, purpose):
 
-
-def send_reset_password_email(user, reset_link):
-    
-    context = {
-        "reset_link": reset_link,
-        "minutes": OTP_VALIDITY_MINUTES, 
+    lookup = {
+        "purpose": purpose,
     }
 
-    html_content = render_to_string(
-        "emails/reset_password.html",
-        context,
+    if method == "email":
+
+        lookup["email"] = value
+
+        lookup["phone_number__isnull"] = True
+
+    elif method == "sms":
+
+        lookup["phone_number"] = value
+
+        lookup["email__isnull"] = True
+
+    else:
+
+        raise ValueError("Invalid OTP method")
+
+    return lookup
+
+
+# ============================================================
+# ISSUE OTP
+# ============================================================
+
+def issue_otp(method, value, purpose):
+
+    otp_value = generate_otp()
+
+    expires_at = (
+        timezone.now()
+        + timedelta(minutes=OTP_VALIDITY_MINUTES)
     )
 
-    email = EmailMultiAlternatives(
-        subject="Reset Your Password",
-        body=f"Click the link below to reset your password:\n\n{reset_link}",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
-    )
-
-    email.attach_alternative(html_content, "text/html")
-    email.send(fail_silently=False)
-
-def issue_otp(email, purpose):
-    
-    otp = generate_otp()
-    OTP.objects.update_or_create(
-        email=email,
+    lookup = get_otp_lookup(
+        method=method,
+        value=value,
         purpose=purpose,
-        defaults={
-            "otp": otp,
-            "expires_at": timezone.now() + timedelta(minutes=OTP_VALIDITY_MINUTES),
-            "is_verified": False,
-        },
     )
-    return otp
+
+    defaults = {
+        "otp": otp_value,
+        "expires_at": expires_at,
+        "is_verified": False,
+        "is_used": False,
+    }
+
+    with transaction.atomic():
+
+        OTP.objects.update_or_create(
+            **lookup,
+            defaults=defaults
+        )
+
+    return otp_value
 
 
-def get_valid_otp(email, purpose, otp_value):
-    
+# ============================================================
+# GET VALID OTP
+# ============================================================
+
+def get_valid_otp(
+    method,
+    value,
+    purpose,
+    otp_value
+):
+
+    lookup = get_otp_lookup(
+        method=method,
+        value=value,
+        purpose=purpose,
+    )
+
+    lookup.update({
+        "is_verified": False,
+        "is_used": False,
+    })
+
     otp_obj = (
-        OTP.objects.filter(email=email, purpose=purpose, is_verified=False)
+        OTP.objects.filter(**lookup)
         .order_by("-created_at")
         .first()
     )
 
     if otp_obj is None:
+
         return None, "Invalid OTP."
 
-    if otp_obj.expires_at < timezone.now():
+    if otp_obj.expires_at <= timezone.now():
+
         return None, "OTP has expired."
 
-    if not secrets.compare_digest(otp_obj.otp, otp_value):
+    if not secrets.compare_digest(
+        str(otp_obj.otp),
+        str(otp_value)
+    ):
+
         return None, "Invalid OTP."
 
     return otp_obj, None
-
