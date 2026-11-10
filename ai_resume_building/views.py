@@ -23,9 +23,10 @@ from ai_resume_building.utils import (
     issue_otp,
     send_otp_email,
     get_valid_otp,
+    send_otp_sms,
 )
 
-from .models import OTP, Candidate, OTPPurpose,  Recruiter
+from .models import OTP, Candidate, OTPPurpose,  UserRole
 from .serializers import (
     CandidateRegistrationSerializer,
     RecruiterRegistrationSerializer,
@@ -36,85 +37,296 @@ from .serializers import (
     SendOTPSerializer,
     VerifyForgotPasswordOTPSerializer,
     VerifyOTPSerializer,
-    UserRole
+   
 )
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-#Based on new update the code as be updated 03/11/2026
+
+import logging
+
+from django.db import transaction, IntegrityError
+from django.contrib.auth import get_user_model
+
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
+from rest_framework import status
+
+from .models import OTP, OTPPurpose
+
+
+
+logger = logging.getLogger(__name__)
+
+User = get_user_model()
+
+
+
+logger = logging.getLogger(__name__)
+
 class CandidateRegistrationView(APIView):
+
     authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = CandidateRegistrationSerializer(data=request.data)
 
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {
-                    "success": True,
-                    "message": "Candidate registered successfully.",
-                },
-                status=status.HTTP_201_CREATED,
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
+        serializer = CandidateRegistrationSerializer(
+            data=request.data
         )
 
-
-#recruiter Registration  with needed email verification
-class RecruiterRegistrationView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        serializer = RecruiterRegistrationSerializer(data=request.data)
+        # VALIDATE REQUEST
 
         if not serializer.is_valid():
+
             return api_response(
                 False,
                 http_status=status.HTTP_400_BAD_REQUEST,
                 errors=serializer.errors,
             )
 
-        email = serializer.validated_data["email"]
+        email = serializer.validated_data["email"].strip().lower()
+        mobile = serializer.validated_data["mobile"].strip()
 
-        verified_otp = (
-            OTP.objects.filter(
-                email=email,
-                purpose=OTPPurpose.SIGNUP,
-                is_verified=True,
+        try:
+
+            with transaction.atomic():
+
+                current_time = timezone.now()
+
+              
+
+                verified_email_otp = (
+                    OTP.objects.select_for_update()
+                    .filter(
+                        email__iexact=email,
+                        phone_number__isnull=True,
+                        purpose=OTPPurpose.SIGNUP,
+                        is_verified=True,
+                        is_used=False,
+                        expires_at__gt=current_time,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+
+                if verified_email_otp is None:
+
+                    return api_response(
+                        False,
+                        http_status=status.HTTP_400_BAD_REQUEST,
+                        errors={
+                            "email": [
+                                "Please verify your email with OTP before signing up."
+                            ]
+                        },
+                    )
+
+                verified_sms_otp = (
+                    OTP.objects.select_for_update()
+                    .filter(
+                        phone_number=mobile,
+                        email__isnull=True,
+                        purpose=OTPPurpose.SIGNUP,
+                        is_verified=True,
+                        is_used=False,
+                        expires_at__gt=current_time,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+
+                if verified_sms_otp is None:
+
+                    return api_response(
+                        False,
+                        http_status=status.HTTP_400_BAD_REQUEST,
+                        errors={
+                            "mobile": [
+                                "Please verify your mobile number with OTP before signing up."
+                            ]
+                        },
+                    )
+
+              
+
+                user = serializer.save()
+
+                # MARK EMAIL VERIFIED
+
+                user.is_email_verified = True
+
+                user.save(
+                    update_fields=["is_email_verified"]
+                )
+
+
+                verified_email_otp.is_used = True
+
+                verified_email_otp.save(
+                    update_fields=["is_used"]
+                )
+
+                verified_sms_otp.is_used = True
+
+                verified_sms_otp.save(
+                    update_fields=["is_used"]
+                )
+
+        except IntegrityError:
+
+            logger.exception(
+                "Failed to create candidate account for email: %s",
+                email,
             )
-            .order_by("-created_at")
-            .first()
-        )
 
-        if verified_otp is None:
             return api_response(
                 False,
                 http_status=status.HTTP_400_BAD_REQUEST,
                 errors={
-                    "email": [
-                        "Please verify your email with the OTP before signing up."
+                    "non_field_errors": [
+                        "An account with these details already exists."
                     ]
                 },
             )
 
+
+        return api_response(
+            True,
+            "Candidate registered successfully.",
+            http_status=status.HTTP_201_CREATED,
+            data={
+                "id": user.id,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "role": user.role,
+                "is_email_verified": user.is_email_verified,
+
+                "candidate_id": user.candidate.id,
+                "fullName": user.candidate.full_name,
+                "mobile": user.candidate.mobile,
+                "degree": user.candidate.degree,
+                "gender": user.candidate.gender,
+                "dob": user.candidate.dob,
+            },
+        )
+
+
+class RecruiterRegistrationView(APIView):
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+
+        serializer = RecruiterRegistrationSerializer(
+            data=request.data
+        )
+
+        # VALIDATE REQUEST
+
+        if not serializer.is_valid():
+
+            return api_response(
+                False,
+                http_status=status.HTTP_400_BAD_REQUEST,
+                errors=serializer.errors,
+            )
+
+        email = serializer.validated_data["Officialemail"].strip().lower()
+        mobile = serializer.validated_data["mobile"].strip()
+
         try:
+
             with transaction.atomic():
+
+                current_time = timezone.now()
+
+              
+
+                verified_email_otp = (
+                    OTP.objects.select_for_update()
+                    .filter(
+                        email__iexact=email,
+                        phone_number__isnull=True,
+                        purpose=OTPPurpose.SIGNUP,
+                        is_verified=True,
+                        is_used=False,
+                        expires_at__gt=current_time,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+
+                if verified_email_otp is None:
+
+                    return api_response(
+                        False,
+                        http_status=status.HTTP_400_BAD_REQUEST,
+                        errors={
+                            "email": [
+                                "Please verify your email with OTP before signing up."
+                            ]
+                        },
+                    )
+
+               
+
+                verified_sms_otp = (
+                    OTP.objects.select_for_update()
+                    .filter(
+                        phone_number=mobile,
+                        email__isnull=True,
+                        purpose=OTPPurpose.SIGNUP,
+                        is_verified=True,
+                        is_used=False,
+                        expires_at__gt=current_time,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+
+                if verified_sms_otp is None:
+
+                    return api_response(
+                        False,
+                        http_status=status.HTTP_400_BAD_REQUEST,
+                        errors={
+                            "mobile": [
+                                "Please verify your mobile number with OTP before signing up."
+                            ]
+                        },
+                    )
+
+              
+
                 user = serializer.save()
 
-                user.is_email_verified = True
-                user.save(update_fields=["is_email_verified"])
+                # MARK EMAIL VERIFIED
 
-                verified_otp.delete()
+                user.is_email_verified = True
+
+                user.save(
+                    update_fields=["is_email_verified"]
+                )
+
+             
+                verified_email_otp.is_used = True
+
+                verified_email_otp.save(
+                    update_fields=["is_used"]
+                )
+
+                verified_sms_otp.is_used = True
+
+                verified_sms_otp.save(
+                    update_fields=["is_used"]
+                )
 
         except IntegrityError:
+
             logger.exception(
                 "Failed to create recruiter account for email: %s",
                 email,
@@ -130,116 +342,195 @@ class RecruiterRegistrationView(APIView):
                 },
             )
 
+    
+
+        recruiter = user.recruiter
+
         return api_response(
             True,
             "Recruiter registered successfully.",
             http_status=status.HTTP_201_CREATED,
             data={
                 "id": user.id,
-                "username": user.username,
                 "email": user.email,
                 "phone_number": user.phone_number,
                 "role": user.role,
-                "recruiter_id": user.recruiter.id,
+                "is_email_verified": user.is_email_verified,
+
+                "recruiter_id": recruiter.id,
+                "fullName": recruiter.full_name,
+                "designation": recruiter.designation,
+                "gender": recruiter.gender,
+                "company_name": recruiter.company_name,
+                "company_website": recruiter.company_website,
+                "industry_type": recruiter.industry_type,
             },
         )
-    
 
+
+
+
+    
 class SendSignupOTPAPIView(APIView):
+
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
+
         serializer = SendOTPSerializer(data=request.data)
+
         serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
 
-        if User.objects.filter(email__iexact=email).exists():
+        # Check existing user
+
+        if method == "email":
+
+            if User.objects.filter(email__iexact=value).exists():
+
+                return api_response(
+                    False,
+                    "Email already registered.",
+                    http_status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        elif method == "sms":
+
+            if User.objects.filter(phone_number=value).exists():
+
+                return api_response(
+                    False,
+                    "Mobile number already registered.",
+                    http_status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+
+            otp = issue_otp(
+                method=method,
+                value=value,
+                purpose=OTPPurpose.SIGNUP,
+            )
+
+            if method == "email":
+
+                sent = send_otp_email(
+                    value,
+                    otp,
+                    "Signup Email Verification",
+                )
+
+            else:
+
+                sent = send_otp_sms(
+                    value,
+                    otp,
+                )
+
+            if not sent:
+
+                return api_response(
+                    False,
+                    "Unable to send OTP. Please try again.",
+                    http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        except Exception:
+
+            logger.exception("Failed to send signup OTP")
+
             return api_response(
                 False,
-                "Email already registered.",
+                "Unable to send OTP. Please try again.",
+                http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return api_response(
+            True,
+            "OTP sent successfully.",
+            method=method,
+            value=value,
+        )
+
+class VerifySignupOTPAPIView(APIView):
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+
+        serializer = VerifyOTPSerializer(data=request.data)
+
+        serializer.is_valid(raise_exception=True)
+
+        method = serializer.validated_data["method"]
+        value = serializer.validated_data["value"]
+        otp_value = serializer.validated_data["otp"]
+
+        otp_obj, error = get_valid_otp(
+            method=method,
+            value=value,
+            purpose=OTPPurpose.SIGNUP,
+            otp_value=otp_value,
+        )
+
+        if error:
+
+            return api_response(
+                False,
+                error,
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
 
-        otp = issue_otp(email, OTPPurpose.SIGNUP)
-        send_otp_email(email, otp, "Signup Email Verification")
-
-        return api_response(True, "OTP sent successfully.")
-
-
-class VerifySignupOTPAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        serializer = VerifyOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        email = serializer.validated_data["email"]
-        otp_value = serializer.validated_data["otp"]
-
-        otp_obj, error = get_valid_otp(email, OTPPurpose.SIGNUP, otp_value)
-        if error:
-            return api_response(False, error, http_status=status.HTTP_400_BAD_REQUEST)
-
         otp_obj.is_verified = True
+
         otp_obj.save(update_fields=["is_verified"])
 
-        return api_response(True, "Email verified successfully.")
-
-
-
-# Login (2-step: password, then OTP)
-
-from django.contrib.auth import authenticate
-
+        return api_response(
+            True,
+            "OTP verified successfully.",
+            method=method,
+            value=value,
+        )
 class LoginAPIView(APIView):
+
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
+
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        login = serializer.validated_data["login"]
+        email = serializer.validated_data["email"].strip().lower()
         password = serializer.validated_data["password"]
-        role = serializer.validated_data["role"]
 
-        # Candidate -> Email only
-        if role == UserRole.CANDIDATE:
-            user = User.objects.filter(
-                email__iexact=login,
-                role=UserRole.CANDIDATE,
-            ).first()
-
-        # Employer -> Username only
-        elif role == UserRole.EMPLOYER:
-            user = User.objects.filter(
-                username__iexact=login,
-                role=UserRole.EMPLOYER,
-            ).first()
-
-        else:
-            return api_response(
-                False,
-                "Invalid role.",
-                http_status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Find user using email
+        user = User.objects.filter(
+            email__iexact=email
+        ).first()
 
         if user is None:
             return api_response(
                 False,
-                "Invalid credentials.",
+                "Invalid email or password.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # Authenticate password
         authenticated_user = authenticate(
-            username=user.username,
-            password=password,
-        )
+                    request=request,
+                    email=email,
+                    password=password,
+                )
 
         if authenticated_user is None:
             return api_response(
                 False,
-                "Invalid credentials.",
+                "Invalid email or password.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -250,49 +541,10 @@ class LoginAPIView(APIView):
                 http_status=status.HTTP_403_FORBIDDEN,
             )
 
-        otp = issue_otp(user.email, OTPPurpose.LOGIN)
-        send_otp_email(user.email, otp, "Login Verification OTP")
+        authenticated_user.last_login = timezone.now()
+        authenticated_user.save(update_fields=["last_login"])
 
-        return api_response(
-            True,
-            "OTP sent successfully.",
-            email=user.email,
-        )
-
-    
-class VerifyLoginOTPAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        serializer = VerifyOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        email = serializer.validated_data["email"]
-        otp_value = serializer.validated_data["otp"]
-
-        otp_obj, error = get_valid_otp(email, OTPPurpose.LOGIN, otp_value)
-        if error:
-            return api_response(False, error, http_status=status.HTTP_400_BAD_REQUEST)
-
-        user = User.objects.filter(email=email).first()
-
-        
-        if user is None or not user.is_active:
-            return api_response(
-                False,
-                "Your account has been deactivated.",
-                http_status=status.HTTP_403_FORBIDDEN,
-            )
-
-        with transaction.atomic():
-            otp_obj.is_verified = True
-            otp_obj.save(update_fields=["is_verified"])
-
-            user.last_login = timezone.now()
-            user.save(update_fields=["last_login"])
-
-        refresh = RefreshToken.for_user(user)
-        #ip_address = get_client_ip(request)
+        refresh = RefreshToken.for_user(authenticated_user)
 
         return api_response(
             True,
@@ -300,25 +552,18 @@ class VerifyLoginOTPAPIView(APIView):
             access=str(refresh.access_token),
             refresh=str(refresh),
             user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-                "phone_number": user.phone_number,
-                "is_email_verified": user.is_email_verified,
-                "is_phone_verified": user.is_phone_verified,
+                "id": authenticated_user.id,
+                "username": authenticated_user.username,
+                "email": authenticated_user.email,
+                "role": authenticated_user.role,
+                "phone_number": authenticated_user.phone_number,
+                "is_email_verified": authenticated_user.is_email_verified,
+                "is_phone_verified": authenticated_user.is_phone_verified,
             }
-        #     login_info={
-        #         "last_login": user.last_login.strftime("%d-%m-%Y %I:%M:%S %p"),
-        #         "ip_address": ip_address,
-        #     },
         )
 
 
-
-# ============================================================
-# HELPER: FIND USER USING EMAIL OR PHONE
-# ============================================================
+    
 
 def get_user_by_method(method, value):
 
@@ -339,34 +584,25 @@ def get_user_by_method(method, value):
 
 # FORGOT PASSWORD - SEND OTP
 
-
 class ForgotPasswordAPIView(APIView):
 
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
 
-        serializer = ForgotPasswordSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
+        serializer = ForgotPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         method = serializer.validated_data["method"]
         value = serializer.validated_data["value"]
 
-        user = get_user_by_method(
-            method,
-            value
-        )
+        user = get_user_by_method(method, value)
 
         # Avoid revealing whether the account exists.
         if user:
 
             try:
-
                 otp_value = issue_otp(
                     method=method,
                     value=value,
@@ -375,28 +611,27 @@ class ForgotPasswordAPIView(APIView):
 
                 if method == "email":
 
-                    email_sent = send_otp_email(
+                    sent = send_otp_email(
                         email=value,
                         otp=otp_value,
                         subject="Password Reset OTP"
                     )
 
-                    if not email_sent:
-
-                        return api_response(
-                            False,
-                            "Unable to send OTP. Please try again.",
-                            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                        )
-
                 elif method == "sms":
 
-                    # SMS provider integration required here.
-                    # Example: Twilio SMS sending function.
+                    sent = send_otp_sms(
+                        phone_number=value,
+                        otp=otp_value
+                    )
+
+                else:
+                    sent = False
+
+                if not sent:
                     return api_response(
                         False,
-                        "SMS service is not configured yet.",
-                        http_status=status.HTTP_501_NOT_IMPLEMENTED
+                        "Unable to send OTP. Please try again.",
+                        http_status=status.HTTP_500_INTERNAL_SERVER_ERROR
                     )
 
             except Exception:
@@ -416,70 +651,59 @@ class ForgotPasswordAPIView(APIView):
             "If the account exists, an OTP has been sent."
         )
 
-
 class VerifyForgotPasswordOTPAPIView(APIView):
 
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
 
-        serializer = VerifyForgotPasswordOTPSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
+        serializer = VerifyForgotPasswordOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         method = serializer.validated_data["method"]
         value = serializer.validated_data["value"]
         otp_value = serializer.validated_data["otp"]
 
-        user = get_user_by_method(
-            method,
-            value
-        )
+        user = get_user_by_method(method, value)
 
         if not user:
-
             return api_response(
                 False,
                 "Invalid OTP.",
                 http_status=status.HTTP_400_BAD_REQUEST
             )
 
-        otp_obj, error = get_valid_otp(
-            method=method,
-            value=value,
-            purpose=OTPPurpose.FORGOT_PASSWORD,
-            otp_value=otp_value
-        )
+        with transaction.atomic():
 
-        if error:
-
-            return api_response(
-                False,
-                error,
-                http_status=status.HTTP_400_BAD_REQUEST
+            otp_obj, error = get_valid_otp(
+                method=method,
+                value=value,
+                purpose=OTPPurpose.FORGOT_PASSWORD,
+                otp_value=otp_value
             )
 
-        otp_obj.is_verified = True
+            if error:
+                return api_response(
+                    False,
+                    error,
+                    http_status=status.HTTP_400_BAD_REQUEST
+                )
 
-        otp_obj.save(
-            update_fields=["is_verified"]
-        )
+            otp_obj.is_verified = True
+            otp_obj.save(update_fields=["is_verified"])
 
         return api_response(
             True,
             "OTP verified successfully."
         )
 
-
+    
 # RESET PASSWORD
-
 class ResetPasswordAPIView(APIView):
 
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
 
@@ -491,8 +715,6 @@ class ResetPasswordAPIView(APIView):
         otp_value = serializer.validated_data["otp"]
         password = serializer.validated_data["password"]
 
-      
-
         user = get_user_by_method(method, value)
 
         if not user:
@@ -502,28 +724,28 @@ class ResetPasswordAPIView(APIView):
                 http_status=status.HTTP_400_BAD_REQUEST
             )
 
-     
         with transaction.atomic():
 
-            # Base OTP query
             otp_queryset = OTP.objects.select_for_update().filter(
                 purpose=OTPPurpose.FORGOT_PASSWORD,
                 is_verified=True,
                 is_used=False,
                 otp=otp_value,
+                expires_at__gt=timezone.now(),
             )
 
-            # Match OTP by email or phone number
             if method == "email":
 
                 otp_queryset = otp_queryset.filter(
-                    email__iexact=value
+                    email__iexact=value,
+                    phone_number__isnull=True,
                 )
 
             elif method == "sms":
 
                 otp_queryset = otp_queryset.filter(
-                    phone_number=value
+                    phone_number=value,
+                    email__isnull=True,
                 )
 
             else:
@@ -536,8 +758,6 @@ class ResetPasswordAPIView(APIView):
 
             otp_obj = otp_queryset.order_by("-created_at").first()
 
-         
-
             if otp_obj is None:
 
                 return api_response(
@@ -546,25 +766,22 @@ class ResetPasswordAPIView(APIView):
                     http_status=status.HTTP_400_BAD_REQUEST
                 )
 
-          
-
+            # Change password
             user.set_password(password)
 
             user.save(update_fields=["password"])
 
-            
+            # Mark OTP as used
+            otp_obj.is_used = True
 
-            otp_obj.delete()
-
-        
+            otp_obj.save(update_fields=["is_used"])
 
         return api_response(
             True,
             "Password reset successfully."
         )
 
-
-
+    
     
 # class GoogleLoginAPIView(generics.GenericAPIView):
 #     serializer_class = GoogleLoginSerializer

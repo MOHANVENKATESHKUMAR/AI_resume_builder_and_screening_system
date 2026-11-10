@@ -5,317 +5,584 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from ai_resume_building.models import User, UserRole , Candidate , Recruiter
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import get_user_model
+import re
+import re
+
+from django.db import transaction
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+
+
+
+from .models import Candidate, TermsAcceptance
+
+
+from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework import serializers
+
+from .models import Candidate, UserRole
+
 
 User = get_user_model()
 
-PASSWORD_SPECIAL_CHARS_RE = r"[!@#$%^&*(),.?\":{}|<>]"
+
+
+PASSWORD_SPECIAL_CHARS_RE = r"""[!@#$%^&*(),.?":{}|<>]"""
 
 
 def validate_password_strength(value):
+
     if len(value) < 8:
-        raise serializers.ValidationError("Password must be at least 8 characters long.")
+        raise serializers.ValidationError(
+            "Password must be at least 8 characters long."
+        )
+
     if not re.search(r"[A-Z]", value):
-        raise serializers.ValidationError("Password must contain at least one uppercase letter.")
+        raise serializers.ValidationError(
+            "Password must contain at least one uppercase letter."
+        )
+
     if not re.search(r"[a-z]", value):
-        raise serializers.ValidationError("Password must contain at least one lowercase letter.")
+        raise serializers.ValidationError(
+            "Password must contain at least one lowercase letter."
+        )
+
     if not re.search(r"\d", value):
-        raise serializers.ValidationError("Password must contain at least one number.")
+        raise serializers.ValidationError(
+            "Password must contain at least one number."
+        )
+
     if not re.search(PASSWORD_SPECIAL_CHARS_RE, value):
-        raise serializers.ValidationError("Password must contain at least one special character.")
+        raise serializers.ValidationError(
+            "Password must contain at least one special character."
+        )
+
     return value
+
+
+# CANDIDATE REGISTRATION SERIALIZER
+
+
+
 
 class CandidateRegistrationSerializer(serializers.Serializer):
 
-    role = serializers.ChoiceField(
-        choices=UserRole.choices,
-        default=UserRole.CANDIDATE
+    # PERSONAL INFORMATION
+
+    fullName = serializers.CharField(
+        max_length=255
     )
 
-    full_name = serializers.CharField(max_length=255)
     email = serializers.EmailField()
-    mobile = serializers.CharField(max_length=15)
-    degree = serializers.CharField(max_length=100)
+
+    mobile = serializers.CharField(
+        max_length=15
+    )
+
+    degree = serializers.CharField(
+        max_length=50
+    )
 
     gender = serializers.ChoiceField(
         choices=[
-            ('Male', 'Male'),
-            ('Female', 'Female'),
-            ('Other', 'Other'),
-            ('Prefer not to say', 'Prefer not to say'),
+            ("Male", "Male"),
+            ("Female", "Female"),
+            ("Other", "Other"),
+            ("Prefer not to say", "Prefer not to say"),
         ]
     )
 
     dob = serializers.DateField()
 
+    # AUTHENTICATION
+
     password = serializers.CharField(
         write_only=True,
-        style={"input_type": "password"},
-        min_length=8
+        validators=[validate_password_strength],
     )
 
-    confirm_password = serializers.CharField(
+    confirmPassword = serializers.CharField(
         write_only=True,
-        style={"input_type": "password"}
     )
 
-    role = serializers.HiddenField(default=UserRole.CANDIDATE)
+    # TERMS ACCEPTANCE
 
-    class Meta:
-        model = User
-        fields = [
-            "full_name", 
-            "username",
-            "email",
-            "phone_number",
-            "degree",
-            "resume",
-            "password",
-            "confirm_password",
-            "role",
-        ]
+    terms = serializers.BooleanField(
+        write_only=True,
+        required=True,
+    )
 
-    def validate_full_name(self, value):
-        value = value.strip()
-
-        if not value:
-            raise serializers.ValidationError("Full name is required.")
-
-        if len(value) < 2:
-            raise serializers.ValidationError("Enter a valid full name.")
-
-        return value
-
-    def validate_username(self, value):
-        value = value.strip()
-
-        if not value:
-            raise serializers.ValidationError("Username is required.")
-
-        if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("Username already exists.")
-
-        return value
+    # EMAIL VALIDATION
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
+
+        value = value.strip().lower()
+
+        if User.objects.filter(email__iexact=value).exists():
+
             raise serializers.ValidationError(
                 "Email already exists."
             )
+
         return value
+
+    # NAME VALIDATION
+
+    def validate_fullName(self, value):
+
+        value = value.strip()
+
+        if len(value) < 2:
+
+            raise serializers.ValidationError(
+                "Enter a valid full name."
+            )
+
+        return value
+
+    # MOBILE VALIDATION
+
+    def validate_mobile(self, value):
+
+        value = value.strip()
+
+        if not re.fullmatch(r"[6-9]\d{9}", value):
+
+            raise serializers.ValidationError(
+                "Enter a valid 10-digit mobile number."
+            )
+
+        if Candidate.objects.filter(mobile=value).exists():
+
+            raise serializers.ValidationError(
+                "Mobile number already exists."
+            )
+
+        return value
+
+    # DEGREE VALIDATION
+
+    def validate_degree(self, value):
+
+        value = value.strip()
+
+        if not value:
+
+            raise serializers.ValidationError(
+                "Degree is required."
+            )
+
+        return value
+
+    # DOB VALIDATION
+
+    def validate_dob(self, value):
+
+        if value >= timezone.localdate():
+
+            raise serializers.ValidationError(
+                "Date of birth must be in the past."
+            )
+
+        return value
+
+    # OBJECT VALIDATION
 
     def validate(self, attrs):
 
-        if attrs["password"] != attrs["confirm_password"]:
+        password = attrs.get("password")
+
+        confirm_password = attrs.get("confirmPassword")
+
+        if password != confirm_password:
+
             raise serializers.ValidationError({
-                "confirm_password": "Passwords do not match."
+                "confirmPassword": "Passwords do not match."
+            })
+
+        if not attrs.get("terms"):
+
+            raise serializers.ValidationError({
+                "terms": "Please accept the terms and conditions."
             })
 
         return attrs
 
+    # CREATE USER AND CANDIDATE
+
+    @transaction.atomic
     def create(self, validated_data):
 
-        validated_data.pop("confirm_password")
+        full_name = validated_data["fullName"]
 
-        password = validated_data.pop("password")
-        role = validated_data.pop("role")
-        email = validated_data.pop("email")
+        email = validated_data["email"]
 
-        user = User(
+        mobile = validated_data["mobile"]
+
+        degree = validated_data["degree"]
+
+        gender = validated_data["gender"]
+
+        dob = validated_data["dob"]
+
+        password = validated_data["password"]
+
+        # CREATE USER
+
+        user = User.objects.create_user(
             email=email,
-            role=role,
-            phone_number=validated_data.get("mobile")
+            password=password,
+            role=UserRole.CANDIDATE,
+            phone_number=mobile,
         )
 
-        user.set_password(password)
-        user.save()
+        # CREATE CANDIDATE PROFILE
 
         Candidate.objects.create(
             user=user,
-            full_name=validated_data.get("full_name"),
-            mobile=validated_data.get("mobile"),
-            degree=validated_data.get("degree"),
-            gender=validated_data.get("gender"),
-            dob=validated_data.get("dob"),
+            full_name=full_name,
+            mobile=mobile,
+            degree=degree,
+            gender=gender,
+            dob=dob,
+        )
+
+        # SAVE TERMS ACCEPTANCE
+
+        TermsAcceptance.objects.create(
+            user=user,
+            terms_accepted=True,
+            privacy_policy_accepted=True,
+            terms_version="1.0",
         )
 
         return user
 
 
-#Recruiter registration serializer
-class RecruiterRegistrationSerializer(serializers.ModelSerializer):
-    full_name = serializers.CharField(write_only=True)
-    recruiter_name = serializers.CharField(write_only=True)
-    designation = serializers.CharField(write_only=True)
-    company_name = serializers.CharField(write_only=True)
-    company_website = serializers.URLField(write_only=True, required=False, allow_blank=True)
-    company_location = serializers.CharField(write_only=True)
-    industry_type = serializers.CharField(write_only=True)
+
+
+class RecruiterRegistrationSerializer(serializers.Serializer):
+
+    # PERSONAL INFORMATION
+
+    fullName = serializers.CharField(
+        max_length=255
+    )
+
+    Officialemail = serializers.EmailField()
+
+    mobile = serializers.CharField(
+        max_length=15
+    )
+
+    Designation = serializers.CharField(
+        max_length=100
+    )
+
+    gender = serializers.ChoiceField(
+        choices=[
+            ("Male", "Male"),
+            ("Female", "Female"),
+            ("Other", "Other"),
+            ("Prefer not to say", "Prefer not to say"),
+        ]
+    )
+
+    # COMPANY INFORMATION
+
+    CompanyName = serializers.CharField(
+        max_length=255
+    )
+
+    Url = serializers.URLField(
+        max_length=500
+    )
+
+    Industry = serializers.CharField(
+        max_length=150
+    )
+
+    # AUTHENTICATION
 
     password = serializers.CharField(
         write_only=True,
-        style={"input_type": "password"},
+        validators=[validate_password_strength],
     )
 
-    confirm_password = serializers.CharField(
+    confirmPassword = serializers.CharField(
+        write_only=True
+    )
+
+    # TERMS
+
+    terms = serializers.BooleanField(
         write_only=True,
-        style={"input_type": "password"},
+        required=True
     )
 
-    class Meta:
-        model = User
-        fields = [
-            "full_name",
-            #"username",
-            "email",
-            "phone_number",
-            "recruiter_name",
-            "designation",
-            "company_name",
-            "company_website",
-            "company_location",
-            "industry_type",
-            "password",
-            "confirm_password",
-        ]
+    # FULL NAME VALIDATION
 
-    def validate_full_name(self, value):
+    def validate_fullName(self, value):
+
         value = value.strip()
 
-        if not value:
-            raise serializers.ValidationError("Full name is required.")
+        if len(value) < 2:
+            raise serializers.ValidationError(
+                "Enter a valid full name."
+            )
 
         return value
 
-    def validate_username(self, value):
-        value = value.strip()
+    # EMAIL VALIDATION
 
-        if not value:
-            raise serializers.ValidationError("Username is required.")
+    def validate_Officialemail(self, value):
 
-        if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("Username already exists.")
-
-        return value
-
-    def validate_email(self, value):
         value = value.strip().lower()
 
-        try:
-            validate_email(value)
-        except DjangoValidationError:
-            raise serializers.ValidationError("Enter a valid email address.")
+        if User.objects.filter(
+            email__iexact=value
+        ).exists():
 
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Email already exists.")
+            raise serializers.ValidationError(
+                "Email already exists."
+            )
 
         return value
 
-    def validate_phone_number(self, value):
+    # MOBILE VALIDATION
+
+    def validate_mobile(self, value):
+
         value = value.strip()
 
-        if not value.isdigit():
+        if not re.fullmatch(r"[6-9]\d{9}", value):
+
             raise serializers.ValidationError(
-                "Phone number should contain only digits."
+                "Enter a valid 10-digit mobile number."
             )
 
-        if len(value) != 10:
+        if User.objects.filter(
+            phone_number=value
+        ).exists():
+
             raise serializers.ValidationError(
-                "Phone number must contain exactly 10 digits."
+                "Mobile number already exists."
             )
 
         return value
 
-    def validate_password(self, value):
-        return validate_password_strength(value)
+    # DESIGNATION VALIDATION
+
+    def validate_Designation(self, value):
+
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Designation is required."
+            )
+
+        return value
+
+    # COMPANY NAME VALIDATION
+
+    def validate_CompanyName(self, value):
+
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Company name is required."
+            )
+
+        return value
+
+    # WEBSITE VALIDATION
+
+    def validate_Url(self, value):
+
+        return value.strip()
+
+    # INDUSTRY VALIDATION
+
+    def validate_Industry(self, value):
+
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Industry type is required."
+            )
+
+        return value
+
+    # OBJECT VALIDATION
 
     def validate(self, attrs):
-        if attrs["password"] != attrs["confirm_password"]:
-            raise serializers.ValidationError(
-                {
-                    "confirm_password": "Passwords do not match."
-                }
-            )
+
+        password = attrs.get("password")
+
+        confirm_password = attrs.get("confirmPassword")
+
+        if password != confirm_password:
+
+            raise serializers.ValidationError({
+                "confirmPassword": "Passwords do not match."
+            })
+
+        if not attrs.get("terms"):
+
+            raise serializers.ValidationError({
+                "terms": "Please accept the terms and conditions."
+            })
 
         return attrs
 
-    def create(self, validated_data):
-        full_name = validated_data.pop("full_name")
-        recruiter_name = validated_data.pop("recruiter_name")
-        designation = validated_data.pop("designation")
-        company_name = validated_data.pop("company_name")
-        company_website = validated_data.pop("company_website", "")
-        company_location = validated_data.pop("company_location")
-        industry_type = validated_data.pop("industry_type")
-        name_parts = full_name.split(maxsplit=1)
-        first_name = name_parts[0]
-        last_name = name_parts[1] if len(name_parts) > 1 else ""
-        validated_data.pop("confirm_password")
-        password = validated_data.pop("password")
+    # CREATE USER AND RECRUITER
 
-        user = User(
-            #username=validated_data["username"],
-            email=validated_data["email"],
-            phone_number=validated_data["phone_number"],
+    @transaction.atomic
+    def create(self, validated_data):
+
+        full_name = validated_data["fullName"]
+
+        email = validated_data["Officialemail"]
+
+        mobile = validated_data["mobile"]
+
+        designation = validated_data["Designation"]
+
+        gender = validated_data["gender"]
+
+        company_name = validated_data["CompanyName"]
+
+        company_website = validated_data["Url"]
+
+        industry_type = validated_data["Industry"]
+
+        password = validated_data["password"]
+
+        # CREATE USER
+
+        user = User.objects.create_user(
+            email=email,
+            password=password,
             role=UserRole.EMPLOYER,
+            phone_number=mobile,
         )
 
-        user.set_password(password)
-        user.save()
+        # CREATE RECRUITER PROFILE
 
-        Recruiter.objects.create(
+        recruiter = Recruiter.objects.create(
             user=user,
-            first_name=first_name,
-            last_name=last_name,
-            recruiter_name=recruiter_name,
+            full_name=full_name,
             designation=designation,
+            gender=gender,
             company_name=company_name,
             company_website=company_website,
-            company_location=company_location,
             industry_type=industry_type,
+        )
+
+        # SAVE TERMS ACCEPTANCE
+
+        TermsAcceptance.objects.create(
+            user=user,
+            terms_accepted=True,
+            privacy_policy_accepted=True,
+            terms_version="1.0",
         )
 
         return user
     
 
-class LoginSerializer(serializers.Serializer):
-    login = serializers.CharField()
-    password = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=UserRole.choices)
+
+
+# for registration both 
+class SendOTPSerializer(serializers.Serializer):
+
+    method = serializers.ChoiceField(
+        choices=["email", "sms"]
+    )
+
+    value = serializers.CharField(max_length=255)
 
     def validate(self, attrs):
-        login = attrs["login"].strip()
-        role = attrs["role"]
 
-        if role == UserRole.CANDIDATE:
-            try:
-                serializers.EmailField().run_validation(login)
-            except serializers.ValidationError:
-                raise serializers.ValidationError(
-                    {"login": "Please enter a valid email address."}
-                )
+        method = attrs["method"]
+        value = attrs["value"].strip()
 
-        attrs["login"] = login
+        if method == "email":
+
+            value = value.lower()
+
+            email_serializer = serializers.EmailField()
+
+            attrs["value"] = email_serializer.run_validation(value)
+
+        elif method == "sms":
+
+            if not re.fullmatch(r"[6-9]\d{9}", value):
+                raise serializers.ValidationError({
+                    "value": "Enter a valid 10-digit Indian mobile number."
+                })
+
+            attrs["value"] = value
+
         return attrs
-
-class SendOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-
-    def validate_email(self, value):
-        return value.strip().lower()
 
 
 class VerifyOTPSerializer(serializers.Serializer):
+
+    method = serializers.ChoiceField(
+        choices=["email", "sms"]
+    )
+
+    value = serializers.CharField(max_length=255)
+
+    otp = serializers.RegexField(
+        regex=r"^\d{6}$",
+        error_messages={
+            "invalid": "OTP must contain exactly 6 digits."
+        }
+    )
+
+    def validate(self, attrs):
+
+        method = attrs["method"]
+        value = attrs["value"].strip()
+
+        if method == "email":
+
+            value = value.lower()
+
+            email_serializer = serializers.EmailField()
+
+            attrs["value"] = email_serializer.run_validation(value)
+
+        elif method == "sms":
+
+            if not re.fullmatch(r"[6-9]\d{9}", value):
+                raise serializers.ValidationError({
+                    "value": "Enter a valid 10-digit Indian mobile number."
+                })
+
+            attrs["value"] = value
+
+        return attrs
+
+class LoginSerializer(serializers.Serializer):
+
     email = serializers.EmailField()
-    otp = serializers.CharField(min_length=6, max_length=6)
+
+    password = serializers.CharField(
+        write_only=True
+    )
 
     def validate_email(self, value):
         return value.strip().lower()
-
-    def validate_otp(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError("OTP must contain only digits.")
-        return value
-
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
@@ -324,21 +591,64 @@ class ForgotPasswordSerializer(serializers.Serializer):
         choices=["email", "sms"]
     )
 
-    value = serializers.CharField()
+    value = serializers.CharField(max_length=255)
 
+    def validate(self, attrs):
 
+        method = attrs["method"]
+        value = attrs["value"].strip()
+
+        if method == "email":
+
+            value = value.lower()
+
+            serializers.EmailField().run_validation(value)
+
+        elif method == "sms":
+
+            if not re.fullmatch(r"[6-9]\d{9}", value):
+                raise serializers.ValidationError({
+                    "value": "Enter a valid 10-digit mobile number."
+                })
+
+        attrs["value"] = value
+
+        return attrs
+
+    
 class VerifyForgotPasswordOTPSerializer(serializers.Serializer):
 
     method = serializers.ChoiceField(
         choices=["email", "sms"]
     )
 
-    value = serializers.CharField()
+    value = serializers.CharField(max_length=255)
 
-    otp = serializers.CharField(
-        min_length=6,
-        max_length=6
+    otp = serializers.RegexField(
+        regex=r"^\d{6}$",
+        error_messages={
+            "invalid": "OTP must contain exactly 6 digits."
+        }
     )
+
+    def validate(self, attrs):
+
+        method = attrs["method"]
+        value = attrs["value"].strip()
+
+        if method == "email":
+            value = value.lower()
+            serializers.EmailField().run_validation(value)
+
+        elif method == "sms":
+            if not re.fullmatch(r"[6-9]\d{9}", value):
+                raise serializers.ValidationError({
+                    "value": "Enter a valid 10-digit mobile number."
+                })
+
+        attrs["value"] = value
+
+        return attrs
 
 
 class ResetPasswordSerializer(serializers.Serializer):

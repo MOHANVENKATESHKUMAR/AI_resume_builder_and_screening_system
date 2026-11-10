@@ -2,7 +2,7 @@ from django.urls import path
 
 from ai_resume_building.views import( 
  CandidateRegistrationView, ForgotPasswordAPIView, LoginAPIView, LogoutAPIView, RecruiterRegistrationView, ResetPasswordAPIView,  
-SendSignupOTPAPIView, VerifyForgotPasswordOTPAPIView, VerifyLoginOTPAPIView, VerifySignupOTPAPIView)
+SendSignupOTPAPIView, VerifyForgotPasswordOTPAPIView, VerifySignupOTPAPIView)
 
 urlpatterns = [
      #candidate regristration with email verification
@@ -13,8 +13,7 @@ urlpatterns = [
     path("login/", LoginAPIView.as_view(), name="login"),
     #for logout the token goes to 
     path("logout/",LogoutAPIView.as_view(),name="logout",),
-    #LOGIN OTP VERIFICATION
-    path("login/verify-otp/",VerifyLoginOTPAPIView.as_view(),name="verify-login-otp",),
+    
     #signup EMAIL ONLY otp 
     path("signup/send-otp/", SendSignupOTPAPIView.as_view(), name="signup-send-otp"),
     #signup EMAIL otp verification
