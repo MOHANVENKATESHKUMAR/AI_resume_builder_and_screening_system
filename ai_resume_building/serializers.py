@@ -5,8 +5,9 @@ from django.core.validators import validate_email
 from rest_framework import serializers
 
 from ai_resume_building.models import User, UserRole , Candidate , Recruiter
+from django.contrib.auth import get_user_model
 
-
+User = get_user_model()
 
 PASSWORD_SPECIAL_CHARS_RE = r"[!@#$%^&*(),.?\":{}|<>]"
 
@@ -24,21 +25,38 @@ def validate_password_strength(value):
         raise serializers.ValidationError("Password must contain at least one special character.")
     return value
 
+class CandidateRegistrationSerializer(serializers.Serializer):
 
+    role = serializers.ChoiceField(
+        choices=UserRole.choices,
+        default=UserRole.CANDIDATE
+    )
 
-#canditate registration serializer
-class CandidateRegistrationSerializer(serializers.ModelSerializer):
-    full_name = serializers.CharField(write_only=True)
-    degree = serializers.CharField(write_only=True)
-    resume = serializers.FileField(write_only=True)
+    full_name = serializers.CharField(max_length=255)
+    email = serializers.EmailField()
+    mobile = serializers.CharField(max_length=15)
+    degree = serializers.CharField(max_length=100)
+
+    gender = serializers.ChoiceField(
+        choices=[
+            ('Male', 'Male'),
+            ('Female', 'Female'),
+            ('Other', 'Other'),
+            ('Prefer not to say', 'Prefer not to say'),
+        ]
+    )
+
+    dob = serializers.DateField()
 
     password = serializers.CharField(
         write_only=True,
         style={"input_type": "password"},
+        min_length=8
     )
+
     confirm_password = serializers.CharField(
         write_only=True,
-        style={"input_type": "password"},
+        style={"input_type": "password"}
     )
 
     role = serializers.HiddenField(default=UserRole.CANDIDATE)
@@ -80,106 +98,48 @@ class CandidateRegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate_email(self, value):
-        value = value.strip().lower()
-
-        if not value:
-            raise serializers.ValidationError("Email is required.")
-
-        try:
-            validate_email(value)
-        except DjangoValidationError:
-            raise serializers.ValidationError("Enter a valid email address.")
-
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Email already exists.")
-
-        return value
-
-    def validate_phone_number(self, value):
-        value = value.strip()
-
-        if not value:
-            raise serializers.ValidationError("Phone number is required.")
-
-        if not value.isdigit():
+        if User.objects.filter(email=value).exists():
             raise serializers.ValidationError(
-                "Phone number should contain only digits."
+                "Email already exists."
             )
-
-        if len(value) != 10:
-            raise serializers.ValidationError(
-                "Phone number must contain exactly 10 digits."
-            )
-
         return value
-
-    def validate_degree(self, value):
-        value = value.strip()
-
-        if not value:
-            raise serializers.ValidationError("Degree is required.")
-
-        return value
-
-    def validate_resume(self, value):
-        allowed_extensions = (".pdf", ".doc", ".docx")
-
-        filename = value.name.lower()
-
-        if not filename.endswith(allowed_extensions):
-            raise serializers.ValidationError(
-                "Only PDF, DOC and DOCX files are allowed."
-            )
-
-        max_size = 5 * 1024 * 1024  # 5 MB
-
-        if value.size > max_size:
-            raise serializers.ValidationError(
-                "Resume size should not exceed 5 MB."
-            )
-
-        return value
-
-    def validate_password(self, value):
-        return validate_password_strength(value)
 
     def validate(self, attrs):
+
         if attrs["password"] != attrs["confirm_password"]:
-            raise serializers.ValidationError(
-                {
-                    "confirm_password": "Passwords do not match."
-                }
-            )
+            raise serializers.ValidationError({
+                "confirm_password": "Passwords do not match."
+            })
 
         return attrs
 
     def create(self, validated_data):
-        full_name = validated_data.pop("full_name").strip()
-        degree = validated_data.pop("degree")
-        resume = validated_data.pop("resume")
 
         validated_data.pop("confirm_password")
+
         password = validated_data.pop("password")
+        role = validated_data.pop("role")
+        email = validated_data.pop("email")
 
-        name_parts = full_name.split(maxsplit=1)
+        user = User(
+            email=email,
+            role=role,
+            phone_number=validated_data.get("mobile")
+        )
 
-        first_name = name_parts[0]
-        last_name = name_parts[1] if len(name_parts) > 1 else ""
-
-        user = User(**validated_data)
         user.set_password(password)
         user.save()
 
         Candidate.objects.create(
             user=user,
-            first_name=first_name,
-            last_name=last_name,
-            degree=degree,
-            resume=resume,
+            full_name=validated_data.get("full_name"),
+            mobile=validated_data.get("mobile"),
+            degree=validated_data.get("degree"),
+            gender=validated_data.get("gender"),
+            dob=validated_data.get("dob"),
         )
 
         return user
-
 
 
 #Recruiter registration serializer
@@ -206,7 +166,7 @@ class RecruiterRegistrationSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "full_name",
-            "username",
+            #"username",
             "email",
             "phone_number",
             "recruiter_name",
@@ -294,7 +254,7 @@ class RecruiterRegistrationSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password")
 
         user = User(
-            username=validated_data["username"],
+            #username=validated_data["username"],
             email=validated_data["email"],
             phone_number=validated_data["phone_number"],
             role=UserRole.EMPLOYER,

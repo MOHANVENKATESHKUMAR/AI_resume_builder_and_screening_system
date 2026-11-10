@@ -11,12 +11,6 @@ import uuid
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-
-
-
-
-
-
 class UserRole(models.TextChoices):
     ADMIN = "ADMIN", "Admin"
     CANDIDATE = "CANDIDATE", "Candidate"
@@ -24,7 +18,7 @@ class UserRole(models.TextChoices):
 
 
 class User(AbstractUser):
-    username = models.CharField(max_length=150, unique=True)
+    username = None
     email = models.EmailField(unique=True)
 
     role = models.CharField(
@@ -38,8 +32,8 @@ class User(AbstractUser):
     is_email_verified = models.BooleanField(default=False)
     is_phone_verified = models.BooleanField(default=False)
 
-    USERNAME_FIELD = "username"
-    REQUIRED_FIELDS = ["email"]
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = []
 
     class Meta:
         db_table = "user"
@@ -54,9 +48,23 @@ class Candidate(models.Model):
         related_name="candidate",
     )
 
+    full_name = models.CharField(max_length=255, default="", blank=True)
+    mobile = models.CharField(max_length=15, default="", blank=True)
+    degree = models.CharField(max_length=50, blank=True, null=True)
+    GENDER_CHOICES = [
+        ('Male', 'Male'),
+        ('Female', 'Female'),
+        ('Other', 'Other'),
+        ('Prefer not to say', 'Prefer not to say'),
+    ]
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
+    dob = models.DateField(blank=True, null=True)
+
+
+
     # Personal Information
-    first_name = models.CharField(max_length=100)
-    last_name = models.CharField(max_length=100, blank=True)
+    # first_name = models.CharField(max_length=100)
+    # last_name = models.CharField(max_length=100, blank=True)
     headline = models.CharField(max_length=255, blank=True)
     about_me = models.TextField(blank=True)
 

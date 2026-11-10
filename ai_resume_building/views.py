@@ -38,90 +38,31 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-
-
-# canditate Registration  with needed email verify
-
+#Based on new update the code as be updated 03/11/2026
 class CandidateRegistrationView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
-    parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
         serializer = CandidateRegistrationSerializer(data=request.data)
 
-        if not serializer.is_valid():
-            return api_response(
-                False,
-                http_status=status.HTTP_400_BAD_REQUEST,
-                errors=serializer.errors,
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {
+                    "success": True,
+                    "message": "Candidate registered successfully.",
+                },
+                status=status.HTTP_201_CREATED,
             )
 
-        email = serializer.validated_data["email"]
-
-        verified_otp = (
-            OTP.objects.filter(
-                email=email,
-                purpose=OTPPurpose.SIGNUP,
-                is_verified=True,
-            )
-            .order_by("-created_at")
-            .first()
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
-        if verified_otp is None:
-            return api_response(
-                False,
-                http_status=status.HTTP_400_BAD_REQUEST,
-                errors={
-                    "email": [
-                        "Please verify your email with the OTP before signing up."
-                    ]
-                },
-            )
-
-        try:
-            with transaction.atomic():
-                user = serializer.save()
-
-                user.is_email_verified = True
-                user.save(update_fields=["is_email_verified"])
-
-                verified_otp.delete()
-
-        except IntegrityError:
-            logger.exception(
-                "Failed to create candidate account for email: %s",
-                email,
-            )
-
-            return api_response(
-                False,
-                http_status=status.HTTP_400_BAD_REQUEST,
-                errors={
-                    "non_field_errors": [
-                        "An account with these details already exists."
-                    ]
-                },
-            )
-
-        return api_response(
-            True,
-            "Candidate registered successfully.",
-            http_status=status.HTTP_201_CREATED,
-            data={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "phone_number": user.phone_number,
-                "role": user.role,
-                "candidate_id": user.candidate.id,
-            },
-        )
 
 #recruiter Registration  with needed email verification
-
-
 class RecruiterRegistrationView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
